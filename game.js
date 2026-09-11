@@ -2947,13 +2947,14 @@ function scatterResources(rec, cx, cz) {
     if (dd) { dm.push(row); dc.push(ashen ? 0x6e675e : 0x8a7458); }   // bare wood: cold grey in the ash, sun-dried brown on dry ground
     else if (TREE_BROAD[k]) { bm.push(row); bc.push(T.tint); } else { cm.push(row); cc.push(T.tint); }
   };
+  if (oz < 499000) roadBridgesNear(Math.floor(ox * INV_CELL), Math.floor(oz * INV_CELL));   // the decks claim their tiles before this scatter rolls them
   for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
     const x = ox + i, z = oz + j, y = recH(rec, x, z), key = tk(x, z);
     if (y < SEA) {
       if (z < 500000 && fishSpotAt(x, z, key)) rec.objs.push({ t: 2, k: y < -4.5 ? 1 : 0, x, z, y: 0, key, n: 'Fishing spot' });
       continue;
     }
-    if (y < 1.7 || y > 70 || blocked.has(key) || floorMap.has(key) || onDitchBank(x, z) || cityCell(x, z) !== 0) continue;
+    if (y < 1.7 || y > 70 || blocked.has(key) || floorMap.has(key) || roadDeck.has(key) || onDitchBank(x, z) || cityCell(x, z) !== 0) continue;
     if (z > 500000) {   // dungeon ground grows nothing; it only bares its marked veins
       const dk = dunVein(x, z);
       if (dk >= 0 && rm.length < RCAP) {
@@ -3544,7 +3545,7 @@ function setOsrsDist(v) {
   OSRS_CAM2 = OSRS_CAM * OSRS_CAM;
   const f = OSRS_CAM / OSRS_DIST0;
   OSRS_NEAR = OSRS_NEAR0 * f;
-  LOC7 = Math.min(64, LOC7_0 * f);      // 64 is closeList's own reach: a wider ring would only ever be half filled
+  LOC7 = Math.min(3 * CHUNK - 8, LOC7_0 * f);   // capped only by how far objects exist at all (the near chunks reach ~3 chunks out)
   LOC7_OUT = LOC7 * LOC7_HYST;
   return OSRS_CAM;
 }
@@ -6743,8 +6744,10 @@ function updatePools(t) {
   /* objects the 07 overlay owns but the close list no longer covers (a teleport, a sprint, the setting off):
      loc7Frame tears them down; membership means the checks stay proportional to what is actually up */
   for (const o of l7Set) if (!osrsOn || Math.abs(o.x - P.tx) + Math.abs(o.z - P.tz) > LOC7_OUT) loc7Frame(o);
+  const wideLoc = LOC7_OUT > 52 ? nearObjs : null;   // closeList only promises ~52 tiles between rebuilds: a dev-widened ring must read the whole near set
+  if (wideLoc) for (const o of wideLoc) if (o.t <= 1) loc7Frame(o);
   for (const o of closeList()) {
-    if (o.t <= 1) loc7Frame(o);
+    if (!wideLoc && o.t <= 1) loc7Frame(o);
     if (o.t === 0) { if (depleted.has(o.key) && !o.l7s) poolPut(POOL_STUMP, o.x, o.y - 0.18, o.z, o.x * 0.7, 1); }
     else if (o.t === 2) { if (!depleted.has(o.key)) { const w = 0.85 + Math.sin(t * 2.2 + o.x * 0.7 + o.z * 0.4) * 0.16; poolPut(POOL_SPOT, o.x, 0.08, o.z, t * 0.5 + o.x, w, 1, w); } }
     else if (KEEP_TINT[o.t]) poolPut(POOL_KEEP, o.kx !== undefined ? o.kx : o.x, o.y, o.kz !== undefined ? o.kz : o.z, o.dir !== undefined ? o.dir : o.b ? o.b.door * (PI / 2) : 0, 1, 1, 1, KEEP_TINT[o.t]);
@@ -7171,7 +7174,7 @@ function freshCharacter() {
 let saveDirty = 0, lastSave = 0, saveTimer = 0, saveArmed = 0, savedOnce = 0, ackPending = 0, ackWarned = 0;
 let saveFatal = 0, leftOnce = 0, saveDefer = 0, pendingForce = 0;   // the server refused a blob outright; and: the page is going away, once
 const NEED_BUILD = 10;   // the wire contract this client speaks. 10 is a floor, not a preference: this client relies on the room to stamp op 12's clock and to set op 21's owner from the sender, and an older room does neither
-const SPAWN_REV = 10;   // 10: castles refuse a sloping site, which moved some cities' keeps and the garrisons with them. 9: town outlines, plans and charters (Lumbridge/Varrock) moved the belts and the spawns. Bumped with any change to powerAt / spawnTable / pickMonster / regions / sites / TOWNFOLK / LADDERS / bossAt / TREES / ruinAt / the dungeon band
+const SPAWN_REV = 11;   // 11: road bridges — their decks claim tiles from the scatter. 10: castles refuse a sloping site, which moved some cities' keeps and the garrisons with them. 9: town outlines, plans and charters (Lumbridge/Varrock) moved the belts and the spawns. Bumped with any change to powerAt / spawnTable / pickMonster / regions / sites / TOWNFOLK / LADDERS / bossAt / TREES / ruinAt / the dungeon band
 let worldSync = 0, srvBuild = 0;   // build >= 4: rooms relay 20/21/22; build >= 5 accepts batched sends
 /* every routine message a tick produces rides one socket send (one billable request), flushed at tick's end.
    Saves go alone (their own size lane), and clock pings and trade signals go straight out (latency-sensitive). */
@@ -9911,6 +9914,109 @@ function emitBridge(B, b, rec) {
       B.add(BOX, ex, heightAt(ex, ez) + 0.1, ez, 1.4, 0.2, 1.4, 0, C_STONE2);
     }
   }
+}
+
+/* ---- ROAD BRIDGES: wherever a highway runs on but the ground under it cannot be walked — a river reach, a
+   ravine's sheer bite — the road grows a bridge, as long as the gap demands (up to 22 tiles). One march per
+   link, cached for the session: a virtual walker follows the bezier tile by tile, and every stretch it cannot
+   step through (water, or a drop no CLIMB clears with a true void under it) that ends on near-level footing
+   becomes a deck. The deck is a 4-connected line of floor tiles, so diagonal links jog rather than skew and
+   the both-orthogonals diagonal rule never strands a walker mid-span. Pure in (seed), so every client builds
+   the same bridge — and the decks claim tiles from the scatter, which is a spawn-side change (SPAWN_REV 11). ---- */
+const roadBridgeCache = new Map(), roadDeck = new Set();   // deck tile keys, filled at compute time: the scatter reads them BEFORE the hook lays planks (populate scatters first), so a rebuild grows exactly what the first pass grew
+function roadBridgesNear(ccx, ccz) {
+  const out = [];
+  for (let i = -3; i <= 1; i++) for (let j = -3; j <= 1; j++) for (let d = 0; d < 4; d++) out.push(...linkBridges(ccx + i, ccz + j, d));
+  return out;
+}
+function linkBridges(cx, cz, d) {
+  if (roadBridgeCache.S !== S) { roadBridgeCache.clear(); roadDeck.clear(); roadBridgeCache.S = S; }
+  const key = (cx * 8191 + cz) * 4 + d;
+  let list = roadBridgeCache.get(key);
+  if (list !== undefined) return list;
+  roadBridgeCache.set(key, list = []);
+  const L = linkOf(cx, cz, d);
+  if (!L) return list;
+  const [ax, az] = townPt(L.A, L.aA, L.A.r), [bx, bz] = townPt(L.B, L.aB, L.B.r);
+  /* the crown, one sample a tile */
+  const pts = [];
+  const span = Math.hypot(bx - ax, bz - az), steps = Math.ceil(span * 1.6);
+  let lx = 1e9, lz = 1e9;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps, u = 1 - t;
+    const qx = Math.round(u * u * ax + 2 * u * t * L.kx + t * t * bx), qz = Math.round(u * u * az + 2 * u * t * L.kz + t * t * bz);
+    if (qx === lx && qz === lz) continue;
+    lx = qx; lz = qz;
+    pts.push([qx, qz, heightAt(qx, qz)]);
+  }
+  const solid = i => pts[i][2] >= SEA + 0.4;
+  let good = solid(0) ? 0 : -1;
+  for (let i = 1; i < pts.length; i++) {
+    const stepOk = solid(i) && Math.abs(pts[i][2] - pts[i - 1][2]) <= CLIMB + 0.25;
+    if (stepOk || good < 0) { if (solid(i) && (stepOk || good < 0)) good = i; continue; }
+    /* blocked at i: hunt the far footing */
+    const yA = pts[good][2];
+    let j = -1, wet = 0, floor2 = yA;
+    for (let k2 = i; k2 < pts.length; k2++) {
+      const dist = Math.abs(pts[k2][0] - pts[good][0]) + Math.abs(pts[k2][1] - pts[good][1]);
+      if (dist > 26) break;
+      if (!solid(k2)) { wet = 1; continue; }
+      floor2 = Math.min(floor2, pts[k2][2]);
+      if (Math.abs(pts[k2][2] - yA) <= 2.1 && (k2 + 1 >= pts.length || Math.abs(pts[k2 + 1][2] - pts[k2][2]) <= CLIMB + 0.25)) { j = k2; break; }
+    }
+    if (j < 0) { good = -1; continue; }   // no footing in reach: resume beyond and leave the gap unbridged
+    const yB = pts[j][2], dxT = pts[j][0] - pts[good][0], dzT = pts[j][1] - pts[good][1];
+    const len = Math.max(Math.abs(dxT), Math.abs(dzT)) - 1;
+    /* only a real crossing earns planks: open water, or a drop deeper than any walker steps */
+    if (len >= 1 && len <= 22 && (wet || floor2 < Math.min(yA, yB) - 2.2)
+      && !onDitchBank(pts[good][0], pts[good][1]) && !onDitchBank(pts[j][0], pts[j][1])) {
+      const nv = nearVillage(pts[good][0], pts[good][1]);
+      if (!(nv && nv.d < nv.v.r * 1.05)) {
+        /* 4-connected line from bank to bank; the banks themselves stay ground */
+        const tiles = [];
+        let px = pts[good][0], pz = pts[good][1];
+        const tx2 = pts[j][0], tz2 = pts[j][1], sx = Math.sign(tx2 - px), sz2 = Math.sign(tz2 - pz);
+        const majX = Math.abs(dxT) >= Math.abs(dzT);
+        while (px !== tx2 || pz !== tz2) {
+          const ex2 = Math.abs(tx2 - px), ez2 = Math.abs(tz2 - pz);
+          if (majX ? ez2 * 2 > ex2 : ez2 * 2 >= ex2 && ez2) { if (ez2) pz += sz2; else px += sx; } else { if (ex2) px += sx; else pz += sz2; }
+          if (px === tx2 && pz === tz2) break;
+          tiles.push([px, pz]);
+        }
+        if (tiles.length) {
+          for (const [qx2, qz2] of tiles) roadDeck.add(tk(qx2, qz2));
+          list.push({ x: pts[good][0], z: pts[good][1], ex: tx2, ez: tz2, tiles, majX,
+            y: clamp((yA + yB) / 2, Math.max(yA, yB) - 1.05, Math.min(yA, yB) + 1.05) });
+        }
+      }
+    }
+    good = j; i = j;
+  }
+  return list;
+}
+structHooks.push((rec, vs, inChunk) => {
+  if (inDunPlane(rec.cz * CHUNK) || rec.cz * CHUNK > 499000 - CHUNK) return;
+  for (const br of roadBridgesNear(Math.floor(rec.cx * CHUNK * INV_CELL), Math.floor(rec.cz * CHUNK * INV_CELL)))
+    if (inChunk(br.x, br.z)) batchInto(rec, B => emitRoadBridge(B, br));
+});
+/* the road deck: emitBridge's planks laid tile by tile along the marched line, posts reaching for whatever
+   ground is down there (a river bed, a ravine floor), stone steps where the road resumes */
+function emitRoadBridge(B, br) {
+  const dk = { y: br.y - FLOOR_TOP, deck: 1 };
+  for (let q = 0; q < br.tiles.length; q++) {
+    const [px, pz] = br.tiles[q];
+    floorMap.set(tk(px, pz), dk);
+    B.add(BOX, px, br.y - 0.1, pz, br.majX ? 1.6 : 1.04, 0.18, br.majX ? 1.04 : 1.6, 0, C_FLOOR);
+    for (const sg of [-1, 1]) {
+      B.add(BOX, px + (br.majX ? 0 : sg * 0.72), br.y + 0.5, pz + (br.majX ? sg * 0.72 : 0), br.majX ? 1.06 : 0.12, 0.1, br.majX ? 0.12 : 1.06, 0, C_BEAM);
+      if (q & 1) {
+        const g = heightAt(px, pz), post = clamp(br.y - g + 0.4, 1.4, 7);
+        B.add(BOX, px + (br.majX ? 0 : sg * 0.68), br.y + 0.5 - post / 2, pz + (br.majX ? sg * 0.68 : 0), 0.2, post, 0.2, 0, C_BEAM);
+      }
+    }
+  }
+  B.add(BOX, br.x, heightAt(br.x, br.z) + 0.1, br.z, 1.4, 0.2, 1.4, 0, C_STONE2);
+  B.add(BOX, br.ex, heightAt(br.ex, br.ez) + 0.1, br.ez, 1.4, 0.2, 1.4, 0, C_STONE2);
 }
 const dunWebs = new Map();   // web tile key -> {x, z}: so a slash heard over the wire opens the way here too
 /* fixtures into the chunks: the way out, webs that bar and boulders to squeeze past */
