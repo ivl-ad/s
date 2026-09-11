@@ -1282,7 +1282,7 @@ const prayHas = (f, v) => PRAYERS.some(p => (P.prayers & p.bit) && (v === undefi
 /* registration points for the skill sections at the foot of the file: extra task kinds, kill/tick/pool/structure hooks, item-on-object handlers */
 const TASKS = Object.create(null), USE_ON = Object.create(null), onKill = [], tickHooks = [], poolHooks = [], structHooks = [];
 /* settings, shared by the options tab and the dev console */
-const OPT = { camSpeed: 2.0, viewRadius: 7, fog: 1, timers: 1, xpDrops: 1, roofs: 1, hideRoofs: 0, brightness: 1, runMul: 1, retaliate: 1, stuck: 0, pvpWarn: 1, budget: 0, osrs: 1 };
+const OPT = { camSpeed: 2.0, viewRadius: 7, fog: 1, timers: 1, xpDrops: 1, roofs: 1, hideRoofs: 0, brightness: 1, runMul: 1, retaliate: 1, stuck: 0, pvpWarn: 1, budget: 0, osrs: 1, osrsDist: 99 };
 
 /* ---- 6c. ICONS: drawn, not loaded; one 32x32 canvas per (glyph, colours), cached as a data URL ---- */
 const _iconCache = new Map();
@@ -1304,10 +1304,14 @@ function drawIcon(glyph, c, c2) {
 if (typeof ICON07 === 'undefined') for (const k of ['ICON07', 'SK07', 'PR07', 'SP07', 'US07', 'MK07', 'TINT07']) globalThis[k] = {};   // lone-file boot: sprites/tints degrade to glyphs
 const i07p = f => 'assets/' + (f.indexOf('/') < 0 ? 'i07/' + f : f) + '.png', c07p = n => 'assets/c07/' + n + '.png';
 const mk07p = n => n.indexOf('/') < 0 ? c07p(n) : 'assets/' + n + '.png';   // markers default to the c07 map set; a folder means an item sprite stands in
+/* The "2007 models" setting arms the sprites as well as the meshes: with it off every lookup misses and the drawn
+   glyph underneath takes over, so one toggle really does undress the whole 07 layer. Every read of a sprite map
+   goes through here — icons07Apply (settings) forgets the caches the misses would otherwise be stuck in. */
+const g07 = (m, k) => OPT.osrs ? m[k] : 0;
 function icon(id) {
   let u = _iconCache.get(id);
   if (u) return u;
-  const it = ITEMS[id], f = ICON07[id];
+  const it = ITEMS[id], f = g07(ICON07, id);
   _iconCache.set(id, u = f ? i07p(f) : it ? drawIcon(it.g, it.c, it.c2) : drawIcon('lock', '#6a6258', '#3a3630'));
   return u;
 }
@@ -1316,7 +1320,7 @@ SKILLS.forEach((s, i) => { if (!s.locked) defWear({ id: 'skillcape_' + s.k, name
 function skIcon(i) {
   const key = 'sk:' + i, s = SKILLS[i];
   let u = _iconCache.get(key);
-  if (!u) _iconCache.set(key, u = SK07[s.k] ? c07p(SK07[s.k]) : drawIcon(s.g, SK_C[i], '#f0e6c8'));
+  if (!u) _iconCache.set(key, u = g07(SK07, s.k) ? c07p(SK07[s.k]) : drawIcon(s.g, SK_C[i], '#f0e6c8'));
   return u;
 }
 const hexInt = h => parseInt(h.slice(1), 16);
@@ -3507,16 +3511,31 @@ scene.add(player);
    near them or they are near you. Both tests are sticky (OSRS_HYST), because a figure sitting on the line must
    not flicker between rigs frame by frame. ---- */
 /* OSRS_CAM is where the kit goes OFF; it comes back on at OSRS_CAM / OSRS_HYST, and the gap between the two is
-   the whole of the anti-flicker. Stated that way round because the outer edge is the number with a meaning. */
-const OSRS_CAM = 99;                    // camera-to-figure distance in tiles: the middle of the 8..190 zoom range
-const OSRS_CAM2 = OSRS_CAM * OSRS_CAM, OSRS_HYST = 1.15, OSRS_IN = 1 / OSRS_HYST;
-const OSRS_NEAR = 14;                   // ...or this close to you, however far the boom has pulled back
+   the whole of the anti-flicker. Stated that way round because the outer edge is the number with a meaning.
+   One number scales the whole overlay. The dev console's "2007 model distance" sets it, and the near-to-you ring
+   and the world-object ring (LOC7, below) keep the share of it they hold at the default, so figures and the scenery
+   around them never switch rigs at odds with each other. It rides in OPT, so it persists like any other setting. */
+const OSRS_DIST0 = 99, OSRS_NEAR0 = 14, LOC7_0 = 30, LOC7_HYST = 34 / 30;
+let OSRS_CAM = OSRS_DIST0;              // camera-to-figure distance in tiles: the middle of the 8..190 zoom range
+let OSRS_CAM2 = OSRS_CAM * OSRS_CAM;
+const OSRS_HYST = 1.15, OSRS_IN = 1 / OSRS_HYST;
+let OSRS_NEAR = OSRS_NEAR0;             // ...or this close to you, however far the boom has pulled back
+/* every LOD test runs per frame, so nothing is torn down here: the next frame re-tests each figure against the new ring */
+function setOsrsDist(v) {
+  OSRS_CAM = clamp(Math.round(v) || OSRS_DIST0, 4, 600);
+  OSRS_CAM2 = OSRS_CAM * OSRS_CAM;
+  const f = OSRS_CAM / OSRS_DIST0;
+  OSRS_NEAR = OSRS_NEAR0 * f;
+  LOC7 = Math.min(64, LOC7_0 * f);      // 64 is closeList's own reach: a wider ring would only ever be half filled
+  LOC7_OUT = LOC7 * LOC7_HYST;
+  return OSRS_CAM;
+}
 let osrsOn = 0, osrsAvatar = null, osrsSelf = 0;
 const selfStale = [1, 1];               // [box, 07]: only the rig on show is dressed; the other is dressed when it comes up
 const myParts = () => (osrsSelf ? osrsAvatar : avatar).parts;
 function osrsApply() {
   if (OPT.osrs && !OSRSK.ready()) {   // the assets arrive once a session; the setting reasserts itself when they land
-    OSRSK.load().then(osrsApply, e => { OPT.osrs = 0; drawOpts(); say('The 2007 models could not load: ' + e.message, 'bad'); });
+    OSRSK.load().then(osrsApply, e => { OPT.osrs = 0; icons07Apply(1); drawOpts(); say('The 2007 models could not load: ' + e.message, 'bad'); });   // the sprites answer to the same setting: they must not stay dressed under an OFF switch
     return;
   }
   const want = OPT.osrs ? 1 : 0;
@@ -3583,7 +3602,7 @@ const npcFree7 = n => { if (n.o7) { scene.remove(n.o7); OSRSK.npcFree(n.o7); n.o
    ring is tighter, and sticky for the same no-flicker reason. Wilderness trees stay proc — the ashen half-dead
    tint is this world's own and the cache's greens would contradict it. Fixtures inside merged chunk batches
    (stalls, wells, furnaces) swap at populate instead: see b07 and osrsApply's re-lay. */
-const LOC7 = 30, LOC7_OUT = 34;   // Manhattan tiles to the player; the gap is the anti-flicker
+let LOC7 = LOC7_0, LOC7_OUT = LOC7_0 * LOC7_HYST;   // Manhattan tiles to the player; the gap is the anti-flicker (setOsrsDist scales both)
 const l7Set = new Set();   // every object the overlay currently owns, mesh or not — the off-list sweep reads it
 function drop7(o) {
   if (o.l7) { scene.remove(o.l7); OSRSK.locFree(o.l7); o.l7 = null; }
@@ -5507,7 +5526,7 @@ function drawSpells() {
   if (spFilter.combat && combat.length) h += sec('Combat') + combat.map(s => {
     const ok = lvl[SK.magic] >= s.lv;
     return liRow('data-sp="' + s.i + '" title="' + s.need.map(n => n[1] + ' ' + ITEMS[n[0]].name).join(', ') + (s.fx ? ' — ' + fxNote(s.fx) : '') + '"', P.spell === s.i, !ok,
-      SP07[s.k] ? c07p(SP07[s.k]) : drawIcon('rune', '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n,
+      g07(SP07, s.k) ? c07p(SP07[s.k]) : drawIcon('rune', '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n,
       '<u>' + (ok ? (spellReady(s) ? 'ready' : 'no runes') : 'level ' + s.lv) + '</u>');
   }).join('');
   for (const kind of ['utility', 'teleport']) {
@@ -5537,7 +5556,7 @@ on(spellGrid, 'click', e => {
 const prayList = el('prayList');
 function drawPrayers() {
   prayList.innerHTML = PRAYERS.slice().sort((a, b) => a.lv - b.lv).map(p => { const ok = lvl[SK.prayer] >= p.lv && lvl[SK.defence] >= p.dl;
-    return liRow('data-pr="' + p.k + '"', P.prayers & p.bit, !ok, PR07[p.k] ? c07p(PR07[p.k]) : drawIcon(p.g, '#c9b45a', '#efe4c4'), p.n, '', '<u>' + (ok ? 'level ' + p.lv : 'needs level ' + p.lv) + (p.dl ? ', Defence ' + p.dl : '') + '</u>'); }).join('');
+    return liRow('data-pr="' + p.k + '"', P.prayers & p.bit, !ok, g07(PR07, p.k) ? c07p(PR07[p.k]) : drawIcon(p.g, '#c9b45a', '#efe4c4'), p.n, '', '<u>' + (ok ? 'level ' + p.lv : 'needs level ' + p.lv) + (p.dl ? ', Defence ' + p.dl : '') + '</u>'); }).join('');
   el('prPts').textContent = Math.ceil(P.pray) + '/' + P.maxpray;
 }
 on(prayList, 'click', e => {
@@ -5573,10 +5592,24 @@ on(optList, 'click', e => {
   if (k === 'dev') return devGate();
   const r = OPT_ROWS.find(x => x.k === k);
   if (r.tog) OPT[k] = OPT[k] ? 0 : 1; else { OPT[k] += r.step; if (OPT[k] > r.max + 1e-6) OPT[k] = r.min; }
-  if (k === 'osrs') osrsApply();
+  if (k === 'osrs') { icons07Apply(1); osrsApply(); }
   applyOpts(r); drawOpts();
 });
+/* The sprites are cached as data URLs and baked into HTML already on screen, so flipping the setting has to forget
+   both caches and repaint everything built from them; what is rebuilt per frame (marks, the map) needs only the
+   clear. The meshes are osrsApply's half of the same switch. `panes` redraws the two lazily-built lists as well —
+   boot passes it up, because PANE_DRAW builds those on first open anyway and their tables are not up yet. */
+function icons07Apply(panes) {
+  _iconCache.clear(); _markCache.clear();
+  for (const e of slotEls) e.dataset.id = '';       // a pack slot's signature is item+count: the sprite under it moved, not the item
+  skEls.forEach((e, i) => { e.firstChild.src = skIcon(i); });   // the skills grid is built once and only its numbers are redrawn
+  dirty.inv = dirty.eq = dirty.sk = 1;
+  drawPvpTag(); buildWmKey();
+  if (panes) { drawSpells(); drawPrayers(); }
+  wmDirty = 1;
+}
 function applyOpts(r) {
+  setOsrsDist(OPT.osrsDist);
   scene.fog = OPT.fog ? new THREE.Fog(SKY, 120, OPT.viewRadius * CHUNK * 0.95) : null;
   renderer.setClearColor(new THREE.Color(SKY).multiplyScalar(OPT.brightness));
   mat.color.setScalar(OPT.brightness); tintMat.color.setScalar(OPT.brightness); OSRSK.brightness(OPT.brightness);
@@ -5678,7 +5711,7 @@ function xpFrame(dt) {
 /* ---- 27. DEV CONSOLE (backtick) ---- */
 const devEl = el('dev'), devItems = el('devItems'), devFind = el('devFind'), devMons = el('devMons'), devMonFind = el('devMonFind');
 el('devSkill').innerHTML = SKILLS.map((s, i) => s.locked ? '' : '<option value="' + i + '">' + skName(i) + '</option>').join('');
-function openDev() { devEl.classList.add('on'); drawDevItems(); drawDevMons(); devFind.focus(); }
+function openDev() { devEl.classList.add('on'); el('devLod').value = OPT.osrsDist; devLodNote(); drawDevItems(); drawDevMons(); devFind.focus(); }
 /* the console is open ground offline and on the sandbox; elsewhere a one-time password unlocks it per character per world */
 const devOK = () => OFFLINE || SEED === 'lumbridge(sandbox)' || store.get('seedworld.devok.' + (PID || 'anon') + '.' + SEED) === '1';
 function devGate() {
@@ -5830,6 +5863,9 @@ const DEV = {
 };
 on(el('devBody'), 'click', e => { const b = e.target.closest('[data-d]'); if (b && DEV[b.dataset.d]) DEV[b.dataset.d](); });
 el('devDmg').oninput = () => { devDmgMul = Math.max(0, parseFloat(el('devDmg').value) || 1); };
+/* the 07 switch distance, live: every rig test is per frame, so the world re-dresses itself as you type */
+const devLodNote = () => { el('devLodNow').textContent = OSRS_CAM + ' tiles to camera · players, monsters · ' + Math.round(LOC7) + ' to you · trees, veins'; };
+el('devLod').oninput = () => { OPT.osrsDist = setOsrsDist(parseFloat(el('devLod').value)); applyOpts(); devLodNote(); };
 
 /* ---- 28. HOVER + CONTEXT MENU: left click runs the top option, the corner names it, right click lists the rest ---- */
 const hoverEl = el('hover'), ctxEl = el('ctx');
@@ -6265,7 +6301,7 @@ function wmPng(n) {   // the 07 map sprites, fetched once; a late arrival repain
   return i.complete && i.naturalWidth ? i : null;
 }
 function wmIcon(k, x, y, r) {
-  const R = r || 8, im = MK07[k] && wmPng(MK07[k]);
+  const R = r || 8, im = g07(MK07, k) && wmPng(MK07[k]);
   if (!im) return discIcon(wmCtx, ...MK_ART[k].slice(0, 3), x, y, R);
   wmCtx.beginPath(); wmCtx.arc(x, y, R, 0, TAU); wmCtx.fillStyle = 'rgba(0,0,0,.62)'; wmCtx.fill();
   const s = R * 1.7;
@@ -6282,18 +6318,20 @@ function drawYou(g, x, y, face, R, al) {   // al: arrow reach — the legend sho
 }
 const WM_KEY = ['bank', 'ge', 'barber', 3, 4, 6, 'altar', 11, 12, 13, 15, 'mine', 'grove', 'guild_mining', 'guild_wood', 'guild_cook'].map(k => [k, MK_ART[k], MK_ART[k][3]])
   .concat(SHOP_KINDS.map(s => ['shop_' + s.k, MK_ART['shop_' + s.k], s.n]), [['house', MK_ART.house, 'Your house'], ['skull', MK_ART.skull, 'Where you fell']]);
-(function buildKey() {   // every row 20px: the 07 sprites a shade smaller than before, drawn fallbacks matched to them
+function buildWmKey() {   // every row 20px: the 07 sprites a shade smaller than before, drawn fallbacks matched to them
   const key = el('wmKey'), S = 20;
+  key.innerHTML = '';   // re-run when the 2007 setting flips: the rows are sprites or glyphs, never both
   const row = (n, label) => { const d = document.createElement('div'); d.appendChild(n); d.appendChild(document.createTextNode(label)); key.appendChild(d); };
   for (const [k, a, label] of WM_KEY) {
-    if (k !== null && MK07[k]) { const im = new Image(S, S); im.src = mk07p(MK07[k]); im.style.imageRendering = 'pixelated'; row(im, label); continue; }
+    if (k !== null && g07(MK07, k)) { const im = new Image(S, S); im.src = mk07p(MK07[k]); im.style.imageRendering = 'pixelated'; row(im, label); continue; }
     const c = document.createElement('canvas'); c.width = c.height = S;
     discIcon(c.getContext('2d'), a[0], a[1], a[2], S / 2, S / 2, S / 2 - 1, 2.3, 2.3, 26 / 32 * S / 32); row(c, label);
   }
   const yc = document.createElement('canvas'); yc.width = yc.height = S;
   drawYou(yc.getContext('2d'), S / 2, S / 2 + 1.5, PI, 7, 1.5);   // facing up, as the fresh map shows you; sized to sit level with the sprites
   row(yc, 'You');
-})();
+}
+buildWmKey();
 function wmResize() {
   const r = wmCv.getBoundingClientRect();
   wmW = Math.max(1, Math.round(r.width)); wmH = Math.max(1, Math.round(r.height));
@@ -6532,7 +6570,8 @@ function updateZoneTags() {
   t.style.display = wl ? 'flex' : 'none';
   if (wl && t._lv !== wl) { t._lv = wl; t.querySelector('span').textContent = 'Wilderness · level ' + wl; }
 }
-el('pvpTag').querySelector('img').src = MK07.pvp ? mk07p(MK07.pvp) : drawIcon('skull', '#ff5a3a', '#ffd9c9');
+function drawPvpTag() { el('pvpTag').querySelector('img').src = g07(MK07, 'pvp') ? mk07p(MK07.pvp) : drawIcon('skull', '#ff5a3a', '#ffd9c9'); }
+drawPvpTag();
 
 /* ---- 33. THE GAME TICK: everything with consequences, ten times per six seconds; frames only interpolate ---- */
 function gameTick() {
@@ -7585,7 +7624,7 @@ function markHtml(o) {
        were wired up and then never reached. */
   const mk = o.t === 5 ? 'shop_' + SHOP_KINDS[o.k].k : o.t === 28 && o.gd ? 'guild_' + o.gd.g.k : MK_ART[o.t] ? o.t : o.t === 7 ? 'bank' : o.t === 9 ? 'barber' : o.t === 10 ? 'ge' : 'altar';
   const a = o.t === 5 ? [SHOP_KINDS[o.k].g, SHOP_KINDS[o.k].c, '#f0e6c8'] : MK_ART[mk] || MK_ART[o.t];
-  _markCache.set(key, h = '<img src="' + (mk !== null && MK07[mk] ? mk07p(MK07[mk]) : drawIcon(a[0], a[1], a[2])) + '" alt="">');
+  _markCache.set(key, h = '<img src="' + (mk !== null && g07(MK07, mk) ? mk07p(MK07[mk]) : drawIcon(a[0], a[1], a[2])) + '" alt="">');
   return h;
 }
 function labelsBegin() { for (const g of allRigs) g.userData.claim = 0; for (const q of platePool) q.claim = 0; }
@@ -7676,6 +7715,7 @@ function updateRemotes(dt, alpha) {
 /* ---- 40. BOOT ---- */
 freshCharacter();
 osrsApply();   // the saved setting, now that the rig, the pools and the dresser are all up
+if (!OPT.osrs) icons07Apply();   // the skills grid, the pvp tag and the map legend were all built before loadOpts read the setting
 dressAvatar();
 say('Welcome to Seedworld.', 'lv');
 say('This whole world is four bytes. Everything else is arithmetic.');
@@ -8578,7 +8618,7 @@ const slayPool = m => NPC_TYPES.filter(t => !t.boss && !t.town && !t.flee && t.l
 const plural = (s, n) => n === 1 ? s : s.replace(/^(.*?)( of .*)?$/, (_, w, of) => (/[mM]an$/.test(w) ? w.slice(0, -2) + 'en' : /f$/.test(w) ? w.slice(0, -1) + 'ves' : w + (/s$/.test(w) ? 'es' : 's')) + (of || ''));
 let slayO = null;   // the master whose window is open
 function slayerTalk(o) {
-  const m = MASTERS[o.k], s = P.slay, ico = MK07[12] ? mk07p(MK07[12]) : drawIcon(...MK_ART[12]);
+  const m = MASTERS[o.k], s = P.slay, ico = g07(MK07, 12) ? mk07p(MK07[12]) : drawIcon(...MK_ART[12]);
   const why = s ? 'Finish or give up the task you have before asking for another.' : combatLevel() < m.cb ? m.n + ' only assigns fighters of combat level ' + m.cb + ' or more.' : lvl[SK.slayer] < m.sl ? m.n + ' only serves slayers of level ' + m.sl + ' or more.' : '';
   slayO = o;
   showModal(m.n + ', Slayer Master', stRow('Task', s ? 'Kill ' + s.n + ' more ' + plural(NPC_BY[s.k].n, s.n) + '.' : 'No task assigned.') +
@@ -9917,7 +9957,7 @@ function altarStudy() {
     const known = bookHas(i), can = lvl[SK.magic] >= BOOK_LV[i];
     const note = P.book === i ? 'in hand' : known ? 'open it' : can ? 'learn it' : 'Magic ' + BOOK_LV[i];
     return '<div class="mk' + (known || can ? '' : ' no') + '"' + (known || can ? ' data-bkalt="' + i + '"' : '') + '>'
-      + '<img src="' + (MK07['book_' + b.k] ? mk07p(MK07['book_' + b.k]) : c07p('altarIcon')) + '" alt="">'
+      + '<img src="' + (g07(MK07, 'book_' + b.k) ? mk07p(MK07['book_' + b.k]) : OPT.osrs ? c07p('altarIcon') : drawIcon(...MK_ART.altar.slice(0, 3))) + '" alt="">'
       + '<span>' + b.n + '</span><b class="gp">' + note + '</b></div>';
   }).join('');
   showModal('The altar', rows, 'An altar remembers every book you have learned at one.');
@@ -10135,7 +10175,7 @@ function bookSwap() {
   return 1;
 }
 const usRow = s => liRow('data-us="' + USPELLS.indexOf(s) + '" title="' + s.need.map(n => n[1] + ' ' + ITEMS[n[0]].name).concat(s.d).join(', ') + '"', P.uspell === s, lvl[SK.magic] < s.lv,
-  US07[s.n] ? c07p(US07[s.n]) : drawIcon(s.g, '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n, '<u>' + (lvl[SK.magic] < s.lv ? 'level ' + s.lv : spellReady(s) ? 'ready' : 'no runes') + '</u>');
+  g07(US07, s.n) ? c07p(US07[s.n]) : drawIcon(s.g, '#' + s.tint.toString(16).padStart(6, '0'), '#f0e6c8'), s.n, '<u>' + (lvl[SK.magic] < s.lv ? 'level ' + s.lv : spellReady(s) ? 'ready' : 'no runes') + '</u>');
 function cast(s, i) {   // runes first; the effect burns them only when it lands
   if (P.dead || P.stun > 0) return;
   if (!spellReady(s)) return say('You do not have the runes for that spell.', 'bad');
