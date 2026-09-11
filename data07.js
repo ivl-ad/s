@@ -133,6 +133,73 @@ const GLYPH = {
     circ(g, 16, 15, 2.4, d); circ(g, 13, 9, 1.5, d);
   },
 };
+/* the armoury and larder glyphs the dead-code sweep took while the 07 sprites covered every screen: the
+   sprites answer to the 2007-models setting now, so the drawn fallbacks return. Most are restored verbatim
+   from the pre-sweep file; the newer families (vials, gems, herbs, hunter and jewellery tools) are drawn
+   fresh in the same voice. vial1-4 share vial's flask and mark the doses left. */
+GLYPH.dagger = (g, c, d) => { poly(g, [16, 5, 19, 11, 19, 19, 13, 19, 13, 11], c, K); fr(g, d, 10, 19, 12, 3); fr(g, WOODC, 14.5, 22, 3, 6); };
+GLYPH.lsword = (g, c, d) => { poly(g, [16, 1, 18.5, 6, 18.5, 22, 13.5, 22, 13.5, 6], c, K); poly(g, [16, 1, 16, 22], null, d); fr(g, d, 9, 22, 14, 2.6); fr(g, WOODC, 14.6, 24.6, 2.8, 5); fr(g, d, 13.5, 29.2, 5, 1.8); };
+GLYPH.mace = (g, c, d) => { fr(g, WOODC, 14.6, 12, 2.8, 18); circ(g, 16, 8.5, 5.4, c, K); for (const a of [0, 1.05, 2.09, 3.14, 4.19, 5.24]) fr(g, d, 16 + Math.cos(a) * 6.4 - 1.1, 8.5 + Math.sin(a) * 6.4 - 1.1, 2.2, 2.2); };
+GLYPH.baxe = (g, c, d) => { poly(g, [20.4, 3.6, 23.6, 5.6, 11.4, 29.4, 8.2, 27.4], WOODC, K); poly(g, [7, 3, 24, 6, 26, 16, 12, 16, 6, 9], c, K); poly(g, [10, 5.4, 22, 7.6, 23.4, 14, 13.4, 14], d, null); };
+GLYPH.wham = (g, c, d) => { fr(g, WOODC, 14.6, 10, 2.8, 20); poly(g, [8, 2, 24, 2, 24, 12, 8, 12], c, K); fr(g, d, 8, 5.4, 16, 3.2); };
+GLYPH.claws = (g, c, d) => { fr(g, d, 8, 24, 16, 3.4); for (const x of [10.5, 16, 21.5]) qcurve(g, [x - 2.2, 24, x - 3, 12, x + 1.6, 5, x + 1.4, 14, x + 2.2, 24], c, K); fr(g, WOODC, 9, 27.4, 14, 2.6); };
+GLYPH.sword2h = (g, c, d) => { poly(g, [16, 1, 20.5, 7, 20.5, 20, 11.5, 20, 11.5, 7], c, K); poly(g, [16, 1, 16, 20], null, d); fr(g, d, 7, 20, 18, 3); fr(g, WOODC, 14.5, 23, 3, 7); fr(g, d, 13, 29.4, 6, 2); };
+GLYPH.halberd = (g, c, d) => { fr(g, WOODC, 14.8, 3, 2.4, 27); poly(g, [16, 0.5, 18.6, 4.6, 16, 8, 13.4, 4.6], c, K); poly(g, [17.2, 8, 26, 9.5, 27, 16, 17.2, 17.5], c, K); poly(g, [19, 10.4, 24.6, 11.4, 25.2, 14.4, 19, 15.4], d, null); };
+GLYPH.spear = (g, c, d) => { fr(g, WOODC, 14.8, 8, 2.4, 22); poly(g, [16, 1, 19.4, 7.6, 16, 12, 12.6, 7.6], c, K); fr(g, d, 13.4, 12, 5.2, 1.8); };
+GLYPH.chain = (g, c, d) => { poly(g, [9, 6, 23, 6, 26, 12, 24, 27, 8, 27, 6, 12], c, K); g.fillStyle = d; for (let y = 9; y < 26; y += 3.4) for (let x = 9 + (y % 6.8 > 3.3 ? 1.7 : 0); x < 23; x += 3.4) g.fillRect(x, y, 1.6, 1.6); };
+GLYPH.sqshield = (g, c, d) => { poly(g, [8, 5, 24, 5, 24, 23, 16, 28, 8, 23], c, K); poly(g, [11, 8, 21, 8, 21, 21, 16, 24, 11, 21], d, null); };
+GLYPH.defender = (g, c, d) => { poly(g, [12, 3, 20, 3, 22, 12, 16, 29, 10, 12], c, K); poly(g, [14, 6, 18, 6, 19.4, 12, 16, 24, 12.6, 12], d, null); };
+GLYPH.cbow = (g, c, d) => { fr(g, WOODC, 14.4, 8, 3.2, 18); qcurve(g, [4, 12, 16, 3, 28, 12, 16, 8, 4, 12], c, K); ln(g, '#efe4c4', 1, [4.5, 12, 16, 15, 27.5, 12]); fr(g, d, 13.4, 15, 5.2, 4); };
+GLYPH.bolt = (g, c, d) => { fr(g, '#8a6a4a', 14.8, 10, 2.4, 14); poly(g, [16, 4, 19, 11, 13, 11], c, K); poly(g, [13, 24, 19, 24, 16, 29], d, K); };
+GLYPH.dart = (g, c, d) => { fr(g, '#8a6a4a', 15, 13, 2, 9); poly(g, [16, 4, 18.5, 13, 13.5, 13], c, K); poly(g, [11, 22, 16, 19, 21, 22, 16, 28], d, K); };
+GLYPH.ore = (g, c, d) => { ell(g, 16, 19, 12, 9, 0, '#6a6258', K); for (const p of [[11, 17, 4], [19, 15, 3.4], [16, 22, 3]]) circ(g, p[0], p[1], p[2], c, K); circ(g, 10, 16, 1.6, d); };
+GLYPH.bar = (g, c, d) => { poly(g, [5, 21, 11, 13, 27, 13, 21, 21], c, K); poly(g, [11, 13, 27, 13, 27, 17, 21, 17], d, K); poly(g, [5, 21, 21, 21, 21, 25, 5, 25], d, K); };
+GLYPH.meat = (g, c, d) => { ell(g, 17, 17, 10.5, 7.5, -0.5, c, K); ell(g, 15, 15, 4.5, 3, -0.5, d); circ(g, 6.5, 25.5, 3, '#e8e0c8', K); };
+GLYPH.tinder = (g, c, d) => { fr(g, c, 6, 13, 20, 13); g.strokeStyle = K; g.strokeRect(6, 13, 20, 13); fr(g, d, 6, 13, 20, 4); GLYPH.flame(g, '#ff9b21', '#ffe08a', 20, 6, 0.55); };
+GLYPH.rod = (g, c, d) => { ln(g, c, 2.4, [5, 28, 25, 5]); g.strokeStyle = d; g.beginPath(); g.moveTo(25, 5); g.quadraticCurveTo(28, 14, 22, 18); g.stroke(); circ(g, 22, 19, 1.6, null, d); };
+GLYPH.bones = (g, c, d) => { for (const a of [-0.5, 0.5]) { g.save(); g.translate(16, 16); g.rotate(a); rrect(g, -11, -2, 22, 4, 2, c, K); for (const s of [-1, 1]) for (const t of [-1, 1]) circ(g, s * 11, t * 2.4, 2.6, c, K); g.restore(); } };
+GLYPH.wand = (g, c, d) => { poly(g, [19.4, 9, 22, 11.6, 12, 28, 9.4, 25.4], c, K); circ(g, 22.5, 8.5, 3.4, d, K); fr(g, '#fff', 21.6, 7.6, 1.8, 1.8); };
+GLYPH.casket = (g, c, d) => { rrect(g, 4, 13, 24, 14, 2, c, K); rrect(g, 4, 6, 24, 9, 3, d, K); fr(g, '#e0b436', 14, 13, 4, 5); g.strokeStyle = K; g.strokeRect(14, 13, 4, 5); };
+GLYPH.spade = (g, c, d) => { fr(g, WOODC, 14.6, 4, 2.8, 15); fr(g, WOODC, 12, 2, 8, 3); poly(g, [9, 18, 23, 18, 23, 25, 16, 30, 9, 25], c, K); ln(g, d, 1, [16, 19, 16, 27]); };
+GLYPH.banana = (g, c, d) => { qcurve(g, [7, 10, 16, 26, 25, 10, 18, 20, 9, 12, 7, 10], c, d); fr(g, d, 6, 8, 3, 4); };
+GLYPH.peach = (g, c, d) => { poly(g, [16, 8, 22, 9, 26, 15, 24, 23, 16, 26, 8, 23, 6, 15, 10, 9], c, K); poly(g, [16, 9, 16, 25], null, d); qcurve(g, [16, 8, 20, 3, 24, 6, 17, 9, 16, 8], '#4a8a3a', K); };
+GLYPH.whip = (g, c, d) => { fr(g, d, 8, 4, 6, 7); qcurve(g, [11, 11, 4, 22, 16, 28, 27, 22, 20, 14], null, c); qcurve(g, [20, 14, 24, 18, 20, 22], null, c); };
+GLYPH.pie = (g, c, d) => { poly(g, [4, 18, 28, 18, 26, 24, 6, 24], d, K); poly(g, [7, 18, 9, 13, 16, 11, 23, 13, 25, 18], c, K); for (const x of [11, 16, 21]) fr(g, d, x, 14, 2, 2); };
+GLYPH.cake = (g, c, d) => { fr(g, c, 7, 14, 18, 9); fr(g, '#e8dcc8', 7, 12, 18, 4); for (const x of [10, 15, 20]) { fr(g, d, x + 1, 8, 2, 4); fr(g, '#e8a03a', x + 1, 6, 2, 2); } };
+GLYPH.pizza = (g, c, d) => { poly(g, [16, 4, 28, 26, 4, 26], c, K); poly(g, [16, 8, 25, 24, 7, 24], '#e8c86a', null); for (const [x, y] of [[14, 15], [18, 20], [11, 22]]) fr(g, d, x, y, 3, 3); };
+GLYPH.bowl = (g, c, d) => { poly(g, [5, 14, 27, 14, 24, 24, 8, 24], d, K); poly(g, [7, 14, 25, 14, 24, 17, 8, 17], c, null); fr(g, '#c8a060', 20, 8, 3, 7); };
+GLYPH.wine = (g, c, d) => { poly(g, [10, 5, 22, 5, 21, 13, 16, 16, 11, 13], c, K); fr(g, d, 15, 16, 2, 8); fr(g, d, 11, 25, 10, 2); };
+GLYPH.sack = (g, c, d) => { poly(g, [9, 10, 23, 10, 26, 26, 6, 26], c, K); fr(g, d, 12, 6, 8, 5); poly(g, [10, 16, 22, 16], null, d); };
+GLYPH.cheese = (g, c, d) => { poly(g, [5, 22, 27, 22, 27, 14, 16, 8, 5, 14], c, K); for (const [x, y, r] of [[12, 15, 2], [20, 17, 3], [9, 19, 1.5]]) { g.fillStyle = d; g.beginPath(); g.arc(x, y, r, 0, TAU); g.fill(); } };
+GLYPH.egg = (g, c, d) => { g.fillStyle = c; g.strokeStyle = K; g.beginPath(); g.ellipse(16, 17, 8, 10, 0, 0, TAU); g.fill(); g.stroke(); g.fillStyle = d; g.beginPath(); g.ellipse(13, 13, 2.5, 3.5, 0.5, 0, TAU); g.fill(); };
+GLYPH.horn = (g, c, d) => { qcurve(g, [8, 26, 6, 10, 18, 4, 14, 14, 12, 26, 8, 26], c, K); qcurve(g, [9, 22, 8, 12, 15, 7], null, d); };
+GLYPH.grapes = (g, c, d) => { fr(g, '#6b4e22', 15, 4, 2, 6); for (const [x, y] of [[12, 12], [20, 12], [16, 15], [10, 18], [16, 21], [22, 18], [13, 25], [19, 25]]) { g.fillStyle = c; g.strokeStyle = d; g.beginPath(); g.arc(x, y, 3.6, 0, TAU); g.fill(); g.stroke(); } };
+GLYPH.bucket = (g, c, d) => { poly(g, [8, 12, 24, 12, 22, 26, 10, 26], c, K); qcurve(g, [9, 12, 16, 5, 23, 12], null, d); fr(g, '#f0ece4', 10, 13, 12, 3); };
+GLYPH.lamp = (g, c, d) => { poly(g, [8, 18, 24, 18, 21, 25, 11, 25], c, K); qcurve(g, [24, 18, 30, 14, 26, 11, 24, 17, 24, 18], c, K); fr(g, d, 13, 14, 6, 3); fr(g, c, 14, 11, 4, 3); qcurve(g, [10, 25, 16, 28, 22, 25], null, d); };
+GLYPH.knife = (g, c, d) => { poly(g, [9, 21, 21, 7, 25, 11, 13, 25], c, K); poly(g, [11, 21, 21, 9, 23, 11], d, null); fr(g, WOODC, 6, 22, 6, 5); };
+GLYPH.needle = (g, c, d) => { poly(g, [8, 26, 22, 6, 24, 8, 10, 28], c, K); circ(g, 22.6, 7.4, 1.6, null, d); };
+GLYPH.chisel = (g, c, d) => { poly(g, [13, 14, 19, 14, 18, 27, 16, 29, 14, 27], c, K); fr(g, d, 14.6, 16, 2.8, 9); fr(g, WOODC, 12, 3, 8, 11); fr(g, K, 12, 13, 8, 1); };
+GLYPH.mould = (g, c, d) => { poly(g, [6, 10, 26, 10, 24, 26, 8, 26], c, K); poly(g, [10, 13, 22, 13, 21, 22, 11, 22], d, K); };
+GLYPH.gem = (g, c, d) => { poly(g, [16, 4, 25, 12, 16, 28, 7, 12], c, K); poly(g, [16, 4, 20, 12, 16, 28, 12, 12], d, null); ln(g, K, 1, [7, 12, 25, 12]); };
+GLYPH.tiara = (g, c, d) => { poly(g, [7, 24, 7, 12, 12, 18, 16, 8, 20, 18, 25, 12, 25, 24], c, K); fr(g, d, 8, 21, 16, 2.4); circ(g, 16, 21, 2.2, d, K); };
+GLYPH.talisman = (g, c, d) => { ln(g, WOODC, 1.6, [10, 4, 16, 10, 22, 4]); circ(g, 16, 18, 9, c, K); circ(g, 16, 18, 4.4, d, K); };
+GLYPH.herb = (g, c, d) => { ln(g, d, 1.6, [16, 28, 16, 8]); for (const [x, y] of [[10, 10], [22, 12], [9, 18], [23, 20]]) { qcurve(g, [16, y + 4, x, y + 3, x - (x < 16 ? 3 : -3), y - 2, x + (x < 16 ? 2 : -2), y + 1, 16, y + 4], c, K); } };
+GLYPH.crop = (g, c, d) => { circ(g, 16, 20, 7.5, c, K); ln(g, '#4a8a3a', 1.8, [16, 12, 16, 5], [16, 10, 11, 5], [16, 10, 21, 5]); fr(g, d, 13, 18, 6, 1.6); };
+GLYPH.seed = (g, c, d) => { for (const [x, y, r] of [[12, 20, 4], [20, 21, 3.6], [16, 14, 3.8]]) { g.beginPath(); g.ellipse(x, y, r, r * 0.72, 0.5, 0, TAU); paint(g, c, K); } fr(g, d, 14.6, 12.4, 1.6, 2.4); };
+GLYPH.feather = (g, c, d) => { qcurve(g, [8, 27, 8, 8, 22, 4, 18, 16, 10, 26, 8, 27], c, K); ln(g, d, 1.2, [9, 26, 20, 7]); };
+GLYPH.string = (g, c, d) => { g.lineWidth = 2; for (const r of [5, 8]) circ(g, 16, 16, r, null, c); g.lineWidth = 1; ln(g, d, 1.4, [16, 24, 16, 29], [24, 16, 28, 16]); };
+GLYPH.wool = (g, c, d) => { for (const [x, y, r] of [[12, 16, 6], [20, 16, 6], [16, 12, 6], [16, 20, 5]]) circ(g, x, y, r, c, null); circ(g, 16, 16, 9.6, null, K); circ(g, 19, 18, 3.4, d, null); };
+GLYPH.hide = (g, c, d) => { qcurve(g, [7, 7, 16, 3, 25, 7, 27, 16, 25, 25, 16, 29, 7, 25, 5, 16, 7, 7], c, K); fr(g, d, 12, 12, 8, 8); for (const [x, y] of [[6, 6], [26, 6], [6, 26], [26, 26]]) ln(g, K, 1.2, [x - 1, y - 1, x + 1, y + 1]); };
+GLYPH.fur = (g, c, d) => { circ(g, 16, 17, 9, c, K); for (const a of [0.4, 1.2, 2.0, 2.8, 3.6, 4.4, 5.2, 6.0]) ln(g, c, 1.6, [16 + Math.cos(a) * 8.6, 17 + Math.sin(a) * 8.6, 16 + Math.cos(a) * 12, 17 + Math.sin(a) * 12]); circ(g, 13, 14, 3, d, null); };
+GLYPH.vial = (g, c, d) => { fr(g, '#c9c4b8', 13.4, 4, 5.2, 3); poly(g, [13.4, 7, 18.6, 7, 20.6, 13, 20.6, 27, 11.4, 27, 11.4, 13], '#d7e2e8', K); poly(g, [12.4, 16, 19.6, 16, 19.6, 26, 12.4, 26], c, null); fr(g, d, 12.4, 16, 7.2, 2); };
+GLYPH.trap = (g, c, d) => { fr(g, WOODC, 6, 8, 20, 3); for (const x of [7, 15, 23]) fr(g, WOODC, x, 11, 2.4, 14); ln(g, d, 1.2, [6, 17, 26, 17], [6, 22, 26, 22]); fr(g, c, 4, 25, 24, 3); };
+GLYPH.pipe = (g, c, d) => { poly(g, [4, 22, 26, 8, 28, 11, 6, 25], c, K); fr(g, d, 3, 23, 5, 4); poly(g, [24, 7, 28, 5, 29, 8, 27, 10], d, K); };
+GLYPH.trident = (g, c, d) => { fr(g, WOODC, 14.8, 12, 2.4, 18); for (const x of [10, 16, 22]) { ln(g, c, 2, [x, 12, x, 5]); poly(g, [x - 1.4, 6, x + 1.4, 6, x, 2.5], c, K); } ln(g, c, 2, [10, 12, 22, 12]); fr(g, d, 14.8, 12, 2.4, 3); };
+GLYPH.scythe = (g, c, d) => { ln(g, WOODC, 2.4, [12, 29, 16, 4]); ln(g, WOODC, 2, [13, 14, 18, 16]); qcurve(g, [15, 4, 28, 4, 27, 14, 24, 7, 15, 6, 15, 4], c, K); ln(g, d, 1, [16, 5.4, 25, 7]); };
+GLYPH.vial1 = (g, c, d) => { GLYPH.vial(g, c, d); fr(g, '#d7e2e8', 12.4, 16, 7.2, 7.4); fr(g, d, 12.4, 23.4, 7.2, 1.2); };
+GLYPH.vial2 = (g, c, d) => { GLYPH.vial(g, c, d); fr(g, '#d7e2e8', 12.4, 16, 7.2, 4.8); fr(g, d, 12.4, 20.8, 7.2, 1.2); };
+GLYPH.vial3 = (g, c, d) => { GLYPH.vial(g, c, d); fr(g, '#d7e2e8', 12.4, 16, 7.2, 2.4); fr(g, d, 12.4, 18.4, 7.2, 1.2); };
+GLYPH.vial4 = (g, c, d) => GLYPH.vial(g, c, d);
 const SK_C = ['#c9453a', '#3f9a4a', '#4a72c9', '#7a9a3a', '#d8c86a', '#4a8ad8', '#a07ad8', '#a3794a', '#c9453a', '#4a9ad8', '#4faa4a', '#a05ad0',
   '#c99a4a', '#4aaa9a', '#8a8a8a', '#8a7a4a', '#8a94a3', '#b0733a', '#5aa3c9', '#d05a9a', '#e08a2a', '#4f9a3a', '#3faa5a', '#2f8fb0',
   '#5a5348', '#5a5348', '#5a5348', '#5a5348'];

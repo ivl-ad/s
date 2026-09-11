@@ -668,7 +668,6 @@ function ditchT(x, z) {   // distance from the law's line in TILES: the field's 
   const gx2 = wildD(ix + 1, iz) - wildD(ix - 1, iz), gz2 = wildD(ix, iz + 1) - wildD(ix, iz - 1);
   return _dtv = Math.abs(wd) / Math.max(0.55, Math.hypot(gx2, gz2) / 2);
 }
-const inDitch = (x, z) => ditchT(x, z) < 1.25;   // the trench itself
 const onDitchBank = (x, z) => ditchT(x, z) < 3.6;   // trench + berms + a cleared step: no tree or stone interrupts the line
 /* How deep a teleport still works (/w/Wilderness). Spells and ordinary trinkets stop at 20; a short exempt list —
    glory, ring of life, the defence and max capes among them — runs to 30. Without this the skull, the level gate and
@@ -1039,7 +1038,7 @@ const COOK = FISH.concat([['meat', 'beef', '#b83a3a'], ['chicken', 'chicken', '#
   defItem({ id: 'raw_' + src, name: 'Raw ' + src, g: 'meat', c, c2: '#6b2b2b', stack: 1, val: 3, raw: k });
   defItem({ id: 'cooked_' + k, name: 'Cooked ' + k, g: 'meat', c: '#8a5a3a', c2: '#4a2a1a', stack: 1, val: 6, heal: 3 });
   defItem({ id: 'burnt_' + k, name: 'Burnt ' + k, g: 'meat', c: '#2a2320', c2: '#151210', stack: 1, val: 0 });
-  return { k, n: cap(k), raw: 'raw_' + src, done: 'cooked_' + k, cookLv: 1, cook: 30 };
+  return { k, n: cap(k), raw: 'raw_' + src, done: 'cooked_' + k, cookLv: 1, cook: 30, stop: 31 };   // meat stops burning at 31, as the wiki has it
 }));
 
 /* odd pieces: gilded tools are rune under gold leaf */
@@ -1076,7 +1075,7 @@ const runesPer = r => r.step ? 1 + Math.floor(lvl[SK.runecraft] / r.step) : 1;  
 defStack('pure_essence', 'Pure essence', 'ore', '#eef0fa', '#a0a2b4', 5);
 W('tiara', 0, 'tiara', 0, 'head', 40);
 for (const r of RC) {
-  if (r.k === 'wrath') continue;   // the wrath altar answers to no talisman: its door is the guild's own
+  if (r.k === 'wrath' || r.k === 'astral') continue;   // neither altar answers to a talisman on the wiki — and no astral altar stands here, so its pair would be dead stock
   defItem({ id: r.k + '_talisman', name: cap(r.k) + ' talisman', g: 'talisman', c: r.c, c2: r.c2, val: 30 + r.i * 40, tal: r.k });
   defWear({ id: r.k + '_tiara', name: cap(r.k) + ' tiara', g: 'tiara', c: r.c, c2: r.c2, slot: 'head', tiara: r.k, val: 90 + r.i * 40 });
 }
@@ -3826,7 +3825,6 @@ function walkTick() {
     if (wet && !P.afloat) { say('You climb into your rowboat.'); P.afloat = 1; }
     else if (!wet && P.afloat) { say('You step ashore.'); P.afloat = 0; }
     if (P.afloat) gainXp('sailing', 1.1 * took);
-    else if ((P.agx = (P.agx || 0) + took * (P.run && P.energy > 0 ? 0.1 : 0.05)) >= 2) { gainXp('agility', P.agx); P.agx = 0; }   // (dev) the road trains agility, paid in lumps
    /* Drain, then the wiki's own auto-off: "when a player's energy reaches 0%,
        their run option is automatically switched off". Without it the player is
        stuck at zero for as long as they keep walking — the drain skips itself on
@@ -4398,6 +4396,11 @@ function hurtPlayer(dmg, byPlayer) {
   hitsplat(P.rx, P.ry + 1.6, P.rz, dmg);
   if (hurtSnd) { sfx(hurtSnd); hurtSnd = 0; } else if (dmg > 0) sfx(513); else parrySnd();
   wsSend([13, P.hp, P.maxhp]);
+  if (P.hp > 0 && P.hp * 5 < P.maxhp && eq.neck === 'phoenix_necklace') {   // below a fifth: three tenths back, and the charm is spent — before Redemption or the ring can speak
+    P.hp = Math.min(P.maxhp, P.hp + Math.floor(P.maxhp * 0.3));
+    eq.neck = null; dirty.eq = 1; dressAvatar(); markDirty(1);
+    say('Your phoenix necklace flares with healing warmth, and crumbles to dust.', 'lv');
+  }
   if (P.hp > 0 && P.hp <= Math.floor(P.maxhp * 0.1) && prayHas('redeem')) {   // Redemption: a tenth of your health buys a quarter of your prayer level, for every point
     P.hp = Math.min(P.maxhp, P.hp + (lvl[SK.prayer] >> 2)); P.pray = 0; P.prayers = 0; dirty.orb = 1;
     say('You are redeemed, at the cost of all your prayer.', 'lv'); drawPrayers();
@@ -6136,6 +6139,16 @@ function combineItems(ai, bi) {
   const A = inv[ai], B = inv[bi]; if (!A || !B) return 0;
   const logs = ITEMS[A.id].fire ? A : ITEMS[B.id].fire ? B : null, tin = A.id === 'tinderbox' ? A : B.id === 'tinderbox' ? B : null;
   if (logs && tin && logs !== tin) { lightLogs(logs.id); return 1; }
+  const pA = ITEMS[A.id].pot, dA = ITEMS[A.id].dose || 0, dB = ITEMS[B.id].dose || 0;
+  if (pA && pA === ITEMS[B.id].pot) {   // decanting, as ever: (3)+(2) is (4)+(1), (2)+(2) one (4)
+    const hi = Math.min(4, dA + dB), lo = dA + dB - hi;
+    if (hi === Math.max(dA, dB)) return 0;   // the fuller one is already full: nothing pours
+    inv[bi] = { id: pA.k + '_' + hi, n: 1 };
+    inv[ai] = lo ? { id: pA.k + '_' + lo, n: 1 } : null;
+    dirty.inv = 1; markDirty();
+    say('You pour one potion into the other.');
+    return 1;
+  }
   if (A.id === B.id) return 0;
   const rows = RECIPES.filter(r => !r.at && usesItem(r, A.id) && usesItem(r, B.id));
   if (!rows.length) return 0;
@@ -8190,7 +8203,6 @@ async function pollPopulation() {   // only while the select screen is up; alway
    must know in TASKS, USE_ON, onKill, tickHooks, poolHooks, structHooks and pickLists. Everything above is shared; nothing above calls down here at load. ---- */
 
 /* ---- ICONS for the skill items, in the 6c voice: 32x32, 1px K outlines, c primary, d shade ---- */
-const hoop = (g, x, y, rx, ry, rot, w, c) => { for (const [lw, s] of [[w + 2, K], [w, c]]) { g.lineWidth = lw; ell(g, x, y, rx, ry, rot, null, s); } g.lineWidth = 1; };   // outlined ring
 Object.assign(GLYPH, {
   plank(g, c, d) {
     g.save(); g.translate(16, 16); g.rotate(-0.35);
@@ -8473,7 +8485,7 @@ structHooks.push((rec, vs, inChunk) => {
 /* the altar: the matching talisman (carried) or tiara (worn) lets you bind every essence in the pack; pure always, rune essence up to body */
 function rcAltar(o) {
   const r = RC[o.k], k = r.k;
-  if (k !== 'wrath' && !invCount(k + '_talisman') && !(eq.head && ITEMS[eq.head].tiara === k)) return say('The stones are silent to you. You need the ' + k + ' talisman or tiara.', 'bad');   // the wrath stones ask only the level
+  if (ITEMS[k + '_talisman'] && !invCount(k + '_talisman') && !(eq.head && ITEMS[eq.head].tiara === k)) return say('The stones are silent to you. You need the ' + k + ' talisman or tiara.', 'bad');   // an altar with no talisman (wrath) asks only the level
   if (needLv('runecraft', r.lv)) return;
   const ess = invCount('pure_essence') + (r.i <= 5 ? invCount('rune_essence') : 0);
   if (!ess) return say('You have no essence to bind.');
@@ -8772,7 +8784,7 @@ const POTS_R = [
     dirty.orb = dirty.sk = 1;
   }]   // the egg stands in for a crushed nest; heals and armours past full, at the cost of your edge
 ];
-const POTS = POTS_R.map(([k, n, herb, sec, lv, xp, c, fx]) => {
+POTS_R.map(([k, n, herb, sec, lv, xp, c, fx]) => {
   const p = { k, n, herb, sec, lv, xp, fx }, unf = herb + '_potion_u', hn = ITEMS[herb].name;
   if (!ITEMS[unf]) {
     defItem({ id: unf, name: hn + ' potion (unf)', g: 'vial', c: '#7aa86a', c2: CORK, val: ITEMS[herb].val + 3 });
@@ -9988,13 +10000,27 @@ function wildLanding(lv) {
   }
   return null;
 }
-const tpAt = (q, what, cap) => q ? tpTo(q.x, q.z, what, cap) : say('Nothing like that lies within the scan.', 'bad');
+const tpAt = (q, what, cap) => q ? tpTo(q.x, q.z, /^(to|into|home)/.test(what) ? what : 'to the nearest ' + what, cap) : say('Nothing like that lies within the scan.', 'bad');   // a bare place name reads as a sentence
 const tpWild = (lv, what) => tpAt(wildLanding(lv), what);
 
 defWear({ id: 'ring_of_dueling', name: 'Ring of dueling', g: 'ring', c: '#3aa05a', c2: '#9a7414', slot: 'ring', val: 1800, opt: ['Rub', () => villageTp(TP_CAP_ITEM)] });
 RING_NOTES.ring_of_dueling = ' Rub it to be carried to the nearest settlement.';
 ITEMS.amulet_of_glory.opt = ['Rub', () => cityTp(TP_CAP_ITEM)];   // the glory carries you to the nearest city, its 2007 role — and it is on the wiki's level-30 exempt list
 RING_NOTES.amulet_of_glory = ' Rub it to be carried to the nearest city.';
+/* the enchanted necklaces, Lvl-1 to Lvl-5: each keeps its 2007 role, anchored to this world's nearest counterpart
+   where the role names a place. The phoenix works at death's door and crumbles (hurtPlayer); binding's own work
+   — combination runes — has no counterpart here, so it stands as jewellery and its examine says so. */
+defWear({ id: 'games_necklace', name: 'Games necklace', g: 'amulet', c: '#3a64c8', c2: '#9a7414', slot: 'neck', val: 700, opt: ['Rub', () => tpAt(nearestOf(SITE_CELL, 30, (a, b) => { const w = siteAt(a, b); return w && w.t === 3 ? w : null; }), 'waypoint camp', TP_CAP_ITEM)] });
+RING_NOTES.games_necklace = ' Rub it to be carried to the nearest waypoint camp.';
+defWear({ id: 'binding_necklace', name: 'Binding necklace', g: 'amulet', c: '#3aa05a', c2: '#9a7414', slot: 'neck', val: 1400 });
+RING_NOTES.binding_necklace = ' Its old work — binding combination runes — has no counterpart in this world.';
+defWear({ id: 'digsite_pendant', name: 'Digsite pendant', g: 'amulet', c: '#c82a3a', c2: '#9a7414', slot: 'neck', val: 2600, opt: ['Rub', () => tpAt(nearestOf(RUIN_CELL, 30, ruinAt), 'ruins', TP_CAP_ITEM)] });
+RING_NOTES.digsite_pendant = ' Rub it to be carried to the nearest ruins.';
+defWear({ id: 'phoenix_necklace', name: 'Phoenix necklace', g: 'amulet', c: '#e8a03a', c2: '#9a7414', slot: 'neck', val: 4800 });
+RING_NOTES.phoenix_necklace = ' Below a fifth of your health it restores three tenths, and crumbles to dust.';
+defWear({ id: 'skills_necklace', name: 'Skills necklace', g: 'amulet', c: '#b04ad0', c2: '#9a7414', slot: 'neck', val: 8800, opt: ['Rub', () => tpAt(nearestOf(SETTLE_CELL, 40, vFind(v => v.guild && v.guild)), 'guild city', TP_CAP_ITEM)] });
+RING_NOTES.skills_necklace = ' Rub it to be carried to the nearest guild city.';
+ENCH[0].neck = 'games_necklace'; ENCH[1].neck = 'binding_necklace'; ENCH[2].neck = 'digsite_pendant'; ENCH[3].neck = 'phoenix_necklace'; ENCH[4].neck = 'skills_necklace';
 /* teleports: every one ends what you were doing and lands you on a street tile */
 function tpTo(x, z, where, cap) {
   const wl = wildLvAt(P.tx, P.tz);
