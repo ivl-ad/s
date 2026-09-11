@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<!-- A second lock on the chat-bubble sink. The bubble now goes through
+     textContent, but the account key lives in this origin's localStorage and is
+     the whole credential, so any future innerHTML slip should cost a defacement
+     rather than an account. No 'unsafe-inline' for scripts: nothing here needs
+     it. Styles do (three.js writes element styles), images need data: for the
+     drawn icons and blob: for canvases, media needs github.com for the music,
+     and connect-src needs wss: for the socket and github.com for the sound
+     effects fetched on first use. -->
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' https://cdnjs.cloudflare.com;
+  style-src 'self' 'unsafe-inline';
+  img-src 'self' data: blob:;
+  media-src 'self' https://github.com https://objects.githubusercontent.com https://raw.githubusercontent.com data: blob:;
+  connect-src 'self' ws: wss: https://github.com https://objects.githubusercontent.com https://raw.githubusercontent.com;
+  worker-src 'self' blob:;
+  base-uri 'none';
+  form-action 'none';
+  object-src 'none'">
+<title>SEEDWORLD — an infinite 2007-flavoured world from a 4-byte seed</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app"></div>
+<div id="hover"></div>
+<div id="stuckTag">STUCK MODE — 5× slower</div>
+<div id="pvpTag"><img alt=""><span>PVP zone</span></div>
+<section id="budget" class="panel" aria-label="World storage budget">
+  <h1>World state on disk</h1>
+  <p class="bigbytes"><b>4</b><span>BYTES &nbsp;/&nbsp; THE SEED</span></p>
+  <dl class="ledger"><dt>Terrain streamed</dt><dd class="zero">0 B</dd><dt>Tiles generated</dt><dd id="tilecount">0</dd>
+    <dt>&nbsp;&nbsp;…if baked @5 B/tile</dt><dd id="baked">—</dd><dt>Shelter</dt><dd id="inside">outdoors</dd>
+    <dt>Gold minted</dt><dd id="gpMade">0</dd><dt>Gold destroyed</dt><dd id="gpSunk">0</dd></dl>
+</section>
+<div id="mm">
+  <canvas id="minimap" width="120" height="120"></canvas>
+  <span id="compass">N ↑</span>
+  <button id="wmBtn" title="World map" aria-label="World map"><svg viewBox="0 0 20 20" width="19" height="19" aria-hidden="true">
+    <circle cx="10" cy="10" r="7.6" fill="#3b6f9a" stroke="#f4ead0" stroke-width="1.3"/>
+    <path d="M2.4 10h15.2M10 2.4c3.6 3 3.6 12.2 0 15.2M10 2.4c-3.6 3-3.6 12.2 0 15.2" fill="none" stroke="#f4ead0" stroke-width="1.1" opacity=".85"/>
+    <path d="M4.6 6.2c2.2.6 3.2 2 4.4 2.2 1.4.2 2-1 3.4-.4 1.2.5 1 2.2 2.6 2.6-.4 1.4-1.6 2.8-3 3.2-1-.8-.6-2.2-1.8-2.6-1.4-.4-2.4.6-3.6-.2-1-.8-.6-2.6-2-3.4z" fill="#7ab05a"/>
+  </svg></button>
+  <span id="posr">0, 0</span>
+  <button id="signout" title="Save your character and return to the world list">Sign out</button>
+  <button id="adminBtn" style="display:none" title="The sandbox admin console">Admin</button>
+</div>
+<div id="tradeWrap"><div id="tradeBox" class="panel">
+  <div class="mhead"><span id="tradeTitle">Trade</span><b id="tradeX">×</b></div>
+  <div id="tradeCols">
+    <div><h4 id="tradeMineHd">Your offer</h4><div id="tradeMine" class="toffer"></div></div>
+    <div><h4 id="tradeTheirsHd">Their offer</h4><div id="tradeTheirs" class="toffer"></div></div>
+  </div>
+  <div id="tradeFoot"><button id="tradeOk">Accept trade</button><button id="tradeNo">Decline</button></div>
+  <p class="tnote">Click your pack to offer items · click an offered item to take it back. Any change clears both ticks.</p>
+</div></div>
+<div id="bye"><div id="byeBox" class="panel">
+  <h2 id="byeTitle">Saving your character</h2><p id="byeMsg">Making sure everything is stored…</p><div id="byeBtns"></div>
+</div></div>
+<div id="orbs">
+  <div class="orb" id="orbHp" title="Hitpoints"><span class="fill" style="background:#a13b2f"></span><b>10</b></div>
+  <div class="orb" id="orbPray" title="Prayer points"><span class="fill" style="background:#6f8fd0"></span><b>10</b></div>
+  <div class="orb" id="orbRun" title="Run energy — click to toggle"><span class="fill" style="background:#c9a227"></span><b>100</b></div>
+</div>
+<div id="side">
+  <b id="invmin" class="mini" title="minimise the pack">–</b>
+  <div id="tabs">
+    <div class="tab on" data-p="inv">INV</div><div class="tab" data-p="eq">WORN</div><div class="tab" data-p="sk">SKILLS</div><div class="tab" data-p="wd">WORLD</div>
+    <div class="tab" data-p="cb">COMBAT</div><div class="tab" data-p="mg">MAGIC</div><div class="tab" data-p="pr">PRAYER</div><div class="tab" data-p="op">SETUP</div>
+  </div>
+  <div id="panes" class="panel">
+    <div class="pane on" id="pane-inv"><div id="invGrid"></div></div>
+    <div class="pane" id="pane-eq"><div id="eqWrap"></div><button id="eqMore" title="Every bonus, level and worn piece on one sheet">Bonuses &amp; stats</button></div>
+    <div class="pane" id="pane-sk"><div id="skGrid"></div><div id="skFoot"><span>Total level <b id="skTotal">24</b></span><span>28 slots</span></div></div>
+    <div class="pane" id="pane-wd">
+      <input id="seed" value="lumbridge" type="hidden">
+      <div class="wrow"><input id="wx" inputmode="numeric" autocomplete="off" aria-label="X coordinate" placeholder="x">
+        <input id="wz" inputmode="numeric" autocomplete="off" aria-label="Y coordinate" placeholder="y"><button id="go">Travel</button></div>
+      <div class="wrow"><button id="rnd">Roll</button><button id="stuck">Stuck</button></div>
+      <div class="wrow"><button id="clogBtn" title="Every notable drop this character has ever logged">Collection log</button><button id="caBtn" title="Feats of combat, boss by boss">Feats</button></div>
+      <div id="wstats" class="kv"><i>position</i><b id="pos">0, 0</b><i>elevation</i><b id="elev">0</b><i>terrain</i><b id="biome">—</b>
+        <i>chunks resident</i><b id="resident">0</b><i>triangles</i><b id="tris">0</b><i>draw calls</i><b id="calls">0</b><i>fps</i><b id="fps">—</b></div>
+      <p class="hint">Left-click walks · right-click for options · WASD / arrows swing the camera · drag to orbit · scroll to zoom · SPACE toggles run · ` opens the dev console.</p>
+      <p class="hint">Cliffs steeper than one step block you — go around, or open <b>Stuck</b> to climb anything at a crawl. Deep water puts you in a rowboat. Walk through a doorway and the roof lifts off.</p>
+    </div>
+    <div class="pane" id="pane-cb"><div class="phead">Combat Options</div><div id="styleList"></div>
+      <div class="kv"><i>Weapon</i><b id="cbWep">Unarmed</b><i>Attack speed</i><b id="cbSpd">4</b><i>Max hit</i><b id="cbMax">1</b><i>Combat level</i><b id="cbLvl">3</b></div>
+      <button id="cbSpec" style="display:none"></button></div>
+    <div class="pane" id="pane-mg"><div class="phead">Spellbook</div><div id="bookTabs" class="chips"></div><div id="spellFilters" class="chips"></div><div id="spellGrid"></div><p class="hint" id="mgHint">Select a spell, then click a target.</p></div>
+    <div class="pane" id="pane-pr"><div class="phead">Prayers <span id="prPts">10/10</span></div><div id="prayList"></div>
+      <p class="hint">Bury bones for Prayer experience. Active prayers drain points.</p></div>
+    <div class="pane" id="pane-op"><div class="phead">Settings</div><div id="optList"></div></div>
+  </div>
+</div>
+<div id="dghost"></div>
+<div id="modal"><div id="modalBox" class="panel">
+  <div class="mhead"><span id="modalTitle"></span><b id="modalX">×</b></div><div id="modalBody"></div><div id="modalFoot"></div>
+</div></div>
+<div id="dev"><div id="devBox" class="panel">
+  <div class="mhead"><span>Developer console</span><b id="devX">×</b></div>
+  <div id="devBody">
+    <div class="dsec"><h4>Skills</h4><div class="drow"><select id="devSkill"></select><input id="devLvl" type="number" min="1" max="99" value="99">
+      <button id="devSet">Set</button><button id="devAll">Set all</button><button id="devReset">Reset</button></div></div>
+    <div class="dsec"><h4>World</h4><div class="drow">
+      <button data-d="heal">Heal</button><button data-d="coins">+10k gp</button><button data-d="runes">Runes</button>
+      <button data-d="kitm">Melee kit</button><button data-d="kitg">Mage kit</button><button data-d="kitr">Range kit</button>
+      <button data-d="clear">Empty pack</button><button data-d="budget" id="devBudget">World state panel</button></div></div>
+    <div class="dsec"><h4>Teleport</h4><div class="drow"><input id="devTx" type="number" placeholder="x" value="0"><input id="devTz" type="number" placeholder="z" value="0">
+      <button data-d="tp">Go</button><button data-d="here">Use current</button><button data-d="city">Nearest city</button><button data-d="ge">Nearest exchange</button></div>
+      <div class="drow"><select id="devTpNpc"></select><button data-d="npc">Nearest NPC</button><select id="devTpPlace"></select><button data-d="place">Nearest place</button></div></div>
+    <div class="dsec"><h4>Items</h4><div class="drow"><input id="devFind" placeholder="search items…" autocomplete="off">
+      <input id="devQty" type="number" min="1" max="10000" value="1"></div><div id="devItems"></div></div>
+    <div class="dsec"><h4>Monsters</h4><div class="drow"><input id="devMonFind" placeholder="search monsters…" autocomplete="off">
+      <input id="devMonQty" type="number" min="1" max="20" value="1"></div><div id="devMons"></div></div>
+    <div class="drow"><span class="dlab">Run speed</span><input id="devRun" type="number" min="0.25" max="8" step="0.25" value="1">
+      <button data-d="run">Apply</button><span class="dnote" id="devRunNow">1x · 2 tiles/tick</span></div>
+    <div class="drow"><span class="dlab">Random event ×</span><input id="devRand" value="1" autocomplete="off">
+      <span class="dnote">multiplies the genie and evil chicken odds during the right activities</span></div>
+    <div class="drow"><span class="dlab">Damage ×</span><input id="devDmg" value="1" autocomplete="off">
+      <span class="dnote">multiplies the damage you deal (1 = normal)</span></div>
+  </div>
+</div></div>
+<div id="chatwrap"><b id="chatmin" class="mini" title="minimise the chat log">–</b><div id="chat" class="panel"></div></div>
+<div id="chatbar"><i id="netdot" title="offline — single player"></i><input id="chatin" maxlength="120" placeholder="press Enter to chat" spellcheck="false"></div>
+<div id="ctx"></div><div id="fx"></div><div id="plates"></div><div id="xpd"></div>
+<div id="login"><div id="lgBox" class="wbox">
+  <h1>SEEDWORLD</h1>
+  <p class="wsub">One key is the whole account. No email, no password, no recovery.</p>
+  <div id="lgExisting">
+    <label class="llab">Account key</label>
+    <input id="lgKey" maxlength="31" spellcheck="false" autocomplete="off" placeholder="25 characters">
+    <button id="lgLogin" class="lgo">Log in</button>
+    <div class="lrow"><a id="lgToNew">Create an account</a><a id="lgOffline">Play offline</a></div>
+    <p id="lmsg" class="lmsg"></p>
+  </div>
+  <div id="lgNew" style="display:none">
+    <button id="lgGen">Generate key</button>
+    <div id="lgKeyBox" style="display:none">
+      <div id="lgKeyOut" class="lkeyout"></div>
+      <div class="lrow2"><button id="lgCopy">Copy</button><button id="lgDl">Download .txt</button></div>
+      <label class="lchk"><input type="checkbox" id="lgSaved"> I have saved this key &mdash; it cannot be recovered</label>
+    </div>
+    <label class="llab">Display name</label>
+    <div class="lrow2"><input id="lgName" maxlength="12" spellcheck="false" autocomplete="off" placeholder="2-12 characters"><button id="lgCheck">Check</button></div>
+    <button id="lgCreate" class="lgo" disabled>Create account</button>
+    <div class="lrow"><a id="lgToOld">Back to login</a></div>
+    <p id="rmsg" class="lmsg"></p>
+  </div>
+</div></div>
+<div id="welcome"><div id="welBox" class="wbox">
+  <h1>SEEDWORLD</h1>
+  <p class="wsub">An entire world — coastlines, mountains, rivers, roads and every city on them — unpacked from one 32-bit number.</p>
+  <p id="welWho" class="wwho"></p>
+  <div id="welCols"><div id="welLeft">
+    <canvas id="welmap" width="260" height="260"></canvas>
+    <p id="welStat">…</p><p id="welPop" class="wpop"></p>
+  </div><div id="welRight">
+    <div id="welChars"></div>
+    <div class="wclab">Official worlds</div>
+    <button class="wof" data-wof="lumbridge"><b>Lumbridge</b><u>the main world — everyone starts here</u></button>
+    <button class="wof" data-wof="lumbridge(sandbox)"><b>Lumbridge (Sandbox)</b><u>the official sandbox — try anything</u></button>
+    <div class="wclab">Custom world</div>
+    <div class="wrow2"><input id="welSeed" spellcheck="false" autocomplete="off" aria-label="World seed"><button id="welRoll">Roll</button></div>
+    <button id="welGo" class="lgo">Enter this world</button>
+    <p class="wfoot">Any word is a world. Orange discs are settlements the land will actually support — the bigger the disc, the greater the city.</p>
+  </div></div>
+</div></div>
+<div id="wmap"><div id="wmBox" class="panel">
+  <div id="wmHead"><span>World map</span><span id="wmPos"></span><b id="wmX" title="close (Esc)">×</b></div>
+  <div id="wmBody"><canvas id="wmCv"></canvas><div id="wmKey"></div>
+    <div id="wmCtl"><button id="wmIn" title="zoom in">+</button><button id="wmOut" title="zoom out">−</button><button id="wmHome" title="centre on you">◎</button></div></div>
+</div></div>
+<button id="bgmBtn" title="music">🔊</button>
+<div id="boot">BUILDING WORLD…</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="icons07.js"></script>
+<script src="data07.js"></script>
+<script src="osrs.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

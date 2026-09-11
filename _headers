@@ -1,0 +1,14 @@
+# Workers Assets serves everything with `max-age=0, must-revalidate` by default, so a warm reload spends fifty-odd
+# conditional requests before the login screen can do anything. The sprite and sound sets are named files that change
+# only when a new one is drawn, so they can be cached outright; renaming one is how you bust it.
+#
+# assets/osrs is deliberately NOT here. player.json and models.bin.gz are a matched pair — the json holds the byte
+# offsets into the bin — and a cache that can hold one without the other is a cache that can hand a player garbage.
+# The code files stay on must-revalidate too: a stale game.js against a fresh worker is the bug this project's socket
+# hello exists to catch.
+/assets/i07/*
+  Cache-Control: public, max-age=86400
+/assets/c07/*
+  Cache-Control: public, max-age=86400
+/assets/sound/*
+  Cache-Control: public, max-age=86400

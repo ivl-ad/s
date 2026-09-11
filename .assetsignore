@@ -1,0 +1,21 @@
+/src
+wrangler.toml
+.assetsignore
+.gitignore
+.rgignore
+.wrangler
+.claude
+.git
+CLAUDE.md
+MAP.md
+EQUIPMENT.md
+EQUIPMENT-NAMES.md
+tools/
+# build-time tooling and its inputs — never served (covers icons07-tint/sync.mjs and the csvs when restored)
+*.mjs
+*.csv
+sql/
+
+# temporary icon staging folders - 20k sprites that must never be published
+c07-full2/
+i07-full2/

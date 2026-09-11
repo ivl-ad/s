@@ -1,0 +1,43 @@
+name = "seedworld"
+main = "src/worker.js"
+compatibility_date = "2026-08-01"
+
+[assets]
+directory = "."
+binding = "ASSETS"
+run_worker_first = ["/ws", "/register", "/rotate", "/save", "/health", "/play", "/name-check", "/characters", "/population", "/archive", "/ge", "/ge/*"]
+
+[[durable_objects.bindings]]
+name = "WORLD"
+class_name = "World"
+
+[[durable_objects.bindings]]
+name = "EXCHANGE"
+class_name = "Exchange"
+
+[[migrations]]
+tag = "seedworld-v1"
+new_sqlite_classes = ["World"]
+
+[[migrations]]
+tag = "seedworld-v2"
+new_sqlite_classes = ["Exchange"]
+
+[[r2_buckets]]
+binding = "ARCHIVE"
+bucket_name = "seedworld-saves"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "seedworld"
+database_id = "35e33bd4-04d1-4bda-aae6-b312c7511835"
+
+[vars]
+ALLOWED_ORIGINS = "https://vla.dev"
+
+[observability]
+enabled = true
+
+# the archive sweep; ARCH_IDLE in src/worker.js is the age threshold
+[triggers]
+crons = ["*/5 * * * *"]
