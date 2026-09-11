@@ -976,7 +976,7 @@ const TREES = [
   ['mahogany', 'Mahogany', 50, 125, 157.5, 70, 0x8a3a2a, 1.26, 'mahogany_logs']   // appended, never inserted: tree kinds are part of the deterministic world
 ].map(([k, n, lv, xp, fire, rs, tint, sc, log], i) => {
   defItem({ id: log, name: k === 'tree' ? 'Logs' : cap(k) + ' logs', g: 'log', c: '#8a6438', c2: '#5b4123', stack: 1, fire, fireLv: lv, val: 8 + i * 30 });
-  return { k, n, lv, xp, fire, rs, tint, sc, log, i };
+  return { k, n, lv, xp, fire, rs, tint, sc, log, i, n7: /tree$/i.test(n) ? n : n + ' tree' };   // n7: the 2007 loc pack's name for this species
 });
 /* rocks: the ore colour is the vein tint and the icon colour. Prices are authored so the chain climbs:
    tin matches copper, coal sits under iron, and the value of everything downstream derives from these. */
@@ -990,7 +990,8 @@ const ORES = [
   ['essence', 'Rune essence', 1, 5, 0, '#d8d8e8', '#8a8a9a', 'rune_essence', 'Rune essence', 4]
 ].map(([k, n, lv, xp, rs, c, c2, ore, name, val], i) => {
   defItem({ id: ore, name: name || cap(k) + ' ore', g: 'ore', c, c2, stack: 1, val: val || 10 + i * 45 });
-  return { k, n, lv, xp, rs, tint: k === 'coal' ? 0x2b2b30 : parseInt(c.slice(1), 16), ore, i };
+  return { k, n, lv, xp, rs, tint: k === 'coal' ? 0x2b2b30 : parseInt(c.slice(1), 16), ore, i,
+    n7: k === 'essence' ? 'Rune essence rock' : k === 'adamantite' ? 'Adamantite rocks' : n };   // the cache's own spellings
 });
 /* smelting: the 2007 ladder, coal-hungry at the top. A bar is worth its ores plus a fifteenth — smelting adds value now
    instead of destroying a third of it. */
@@ -1440,6 +1441,30 @@ Batch.prototype.add = function (geo, x, y, z, sx, sy, sz, rot, col) {
   }
   this.n = n;
 };
+/* a 2007 loc's lit triangles, colours already final (the cache bakes its light): no re-shading pass */
+Batch.prototype.add07 = function (bt, x, y, z, s, rot) {
+  const p = bt.pos, c = bt.col, cs = Math.cos(rot), sn = Math.sin(rot);
+  let n = this.n;
+  if (n + p.length > SPOS.length) return;
+  for (let i = 0; i < p.length; i += 3) {
+    const px = p[i] * s, py = p[i + 1] * s, pz = p[i + 2] * s;
+    SPOS[n] = x + px * cs - pz * sn; SPOS[n + 1] = y + py; SPOS[n + 2] = z + px * sn + pz * cs;
+    SCOL[n] = c[i]; SCOL[n + 1] = c[i + 1]; SCOL[n + 2] = c[i + 2];
+    n += 3;
+  }
+  this.n = n;
+};
+/* emit the 2007 look of a named fixture into a chunk batch, if the pack is armed and carries the name;
+   the variant is the tile's own coin, so every client and every rebuild lays the same stall */
+function b07(B, name, x, y, z, s, rot) {
+  if (!osrsOn) return 0;
+  const n = OSRSK.locVariants(name);
+  if (!n) return 0;
+  const bt = OSRSK.locBatch(name, hash2(Math.round(x), Math.round(z), S + 107) % n);
+  if (!bt) return 0;
+  B.add07(bt, x, y, z, s || 1, rot || 0);
+  return 1;
+}
 Batch.prototype.mesh = function () {
   if (!this.n) return null;
   const g = new THREE.BufferGeometry();
@@ -1998,9 +2023,11 @@ function emitForge(B, f) {
   const x = f.x, y = f.y, z = f.z, s = f.in ? 0.66 : 1;
   const b = (dx, dy, dz, w, h, d, col, geo, rot) => B.add(geo || BOX, x + dx * s, y + dy * s, z + dz * s, w * s, h * s, d * s, rot || 0, col);
   if (f.t === 6) {
+    if (b07(B, 'Cooking range', x, y, z, s, PI / 2)) return;   // the cache range runs long in z; the proc one long in x
     b(0, 0.55, 0, 1.9, 1.1, 1.3, C_STONE2); b(0, 1.16, 0, 2.1, 0.14, 1.5, C_DARK); b(0, 0.55, 0.68, 1.3, 0.7, 0.1, C_DARK);
     b(0, 0.45, 0.74, 1.0, 0.44, 0.06, [0.95, 0.45, 0.10]); b(-0.6, 1.9, -0.3, 0.5, 1.5, 0.5, C_STONE2);
   } else if (f.t === 3) {
+    if (b07(B, 'Furnace', x, y, z, s)) return;
     b(0, 1.35, 0, 3.0, 2.7, 3.0, C_STONE); b(0, 2.78, 0, 3.3, 0.3, 3.3, C_STONE2); b(0.7, 3.5, -0.6, 1.0, 1.6, 1.0, C_STONE2, CYL8);
     b(0, 0.95, 1.5, 1.3, 1.3, 0.3, C_DARK); b(0, 0.8, 1.62, 1.0, 0.8, 0.16, [0.98, 0.55, 0.10]);
     if (!f.in) B.add(BOX, x - 1.9, y + 0.35, z + 0.4, 0.9, 0.7, 0.9, 0, C_BEAM);
@@ -2008,6 +2035,7 @@ function emitForge(B, f) {
     b(0, 0.45, 0, 2.4, 0.9, 1.0, C_BEAM); b(0, 1.1, 0, 1.8, 0.4, 0.4, BARK); b(0.35, 1.25, 0, 0.08, 1.2, 1.2, [0.62, 0.64, 0.68]);
     b(-0.5, 0.12, 0.95, 1.2, 0.3, 0.7, [0.80, 0.68, 0.44], BLOB); b(1.9, 0.25, 0.2, 0.5, 0.5, 1.6, [0.72, 0.58, 0.36]);
   } else {
+    if (b07(B, 'Anvil', x, y, z, s)) return;
     b(0, 0.30, 0, 1.5, 0.6, 1.5, C_BEAM); b(0, 0.78, 0, 0.6, 0.4, 0.6, [0.30, 0.29, 0.31]); b(0, 1.16, 0, 2.0, 0.42, 0.9, [0.34, 0.33, 0.35]);
     b(1.25, 1.16, 0, 0.9, 1.0, 0.8, [0.34, 0.33, 0.35], CONE8, PI / 2);
     if (!f.in) B.add(BOX, x - 1.5, y + 0.5, z + 0.9, 0.7, 1.0, 0.7, 0, C_STONE2);
@@ -2124,15 +2152,18 @@ function emitFurniture(B, f) {
   const x = f.x, z = f.z, y = f.y;
   if (f.t === 0) {
     const awn = (f.k & 1) ? C_BANNER : [0.239, 0.357, 0.545], q = (f.k >>> 2) & 1, rot = q * PI / 2;
+    if (b07(B, 'Market stall', x, y, z, 1, rot)) return;
     B.add(BOX, x, y + 0.55, z, 2.3, 1.1, 1.5, rot, C_FLOOR);
     for (const sx of [-1, 1]) for (const sz of [-1, 1]) B.add(BOX, x + sx * (q ? 0.65 : 1.05), y + 1.2, z + sz * (q ? 1.05 : 0.65), 0.16, 2.4, 0.16, 0, C_BEAM);
     B.add(GABLE, x, y + 2.35, z, 3.0, 0.9, 2.2, rot, awn);
     B.add(BLOB, x - 0.5, y + 1.32, z, 0.52, 0.4, 0.52, 0, [0.62, 0.49, 0.20]); B.add(BLOB, x + 0.5, y + 1.32, z + 0.2, 0.46, 0.4, 0.46, 0, [0.30, 0.50, 0.20]);
   } else if (f.t === 1) {
+    if (b07(B, 'Well', x, y, z)) return;
     B.add(CYL8, x, y + 0.5, z, 2.0, 1.0, 2.0, 0, C_STONE); B.add(CYL8, x, y + 0.62, z, 1.5, 0.9, 1.5, 0, C_DARK);
     for (const s of [-1, 1]) B.add(BOX, x + s * 0.85, y + 1.5, z, 0.18, 2.0, 0.18, 0, C_BEAM);
     B.add(GABLE, x, y + 2.45, z, 2.4, 0.7, 1.6, 0, C_ROOF2);
   } else {
+    if (b07(B, 'Fountain', x, y, z)) return;
     B.add(CYL8, x, y + 0.45, z, 3.6, 0.9, 3.6, 0, C_STONE); B.add(BOX, x, y + 0.8, z, 2.5, 0.16, 2.5, 0, [0.31, 0.55, 0.62]);
     B.add(CYL8, x, y + 1.5, z, 0.8, 1.6, 0.8, 0, C_STONE2); B.add(CYL8, x, y + 2.35, z, 1.7, 0.3, 1.7, 0, C_STONE); B.add(BLOB, x, y + 2.8, z, 0.7, 0.8, 0.7, 0, C_STONE2);
   }
@@ -2191,6 +2222,8 @@ function emitGE(B, g) {
 }
 function emitCityTree(B, t) {   // decoration only; the choppable ones come from the chunk pass
   const s = t.s;
+  if (b07(B, t.broad ? 'Decorative broadleaf tree' : 'Tree', t.x, t.y, t.z, s * 1.24,
+    ((hash2(t.x, t.z, S + 107) >>> 4) & 3) * (PI / 2))) return;   // no decorative conifer in the cache: a park spruce wears the plain tree
   if (t.broad) { B.add(TRUNK, t.x, t.y + 1.2 * s, t.z, 0.42 * s, 3.2 * s, 0.42 * s, 0, BARK2); B.add(BLOB, t.x, t.y + 3.3 * s, t.z, 3.6 * s, 3.0 * s, 3.6 * s, 0, [0.30, 0.48, 0.20]); }
   else { B.add(TRUNK, t.x, t.y + 0.9 * s, t.z, 0.32 * s, 2.4 * s, 0.32 * s, 0, BARK); B.add(SPIRE, t.x, t.y + 2.4 * s, t.z, 2.8 * s, 4.4 * s, 2.8 * s, 0, [0.19, 0.38, 0.19]); }
 }
@@ -2879,7 +2912,7 @@ function scatterResources(rec, cx, cz) {
   const TCAP = 96, RCAP = 34;
   const putRock = (x, z, y, k, h, key) => {
     const st = rockScale(h);
-    rec.objs.push({ t: 1, k, x, z, y, key, n: ORES[k].n });
+    rec.objs.push({ t: 1, k, x, z, y, key, n: ORES[k].n, h7: h });
     rm.push([x, y - 0.15, z, ((h >>> 21) & 63) / 64 * TAU, st, st * 0.85]); rc.push(ORES[k].tint); rec.blk.push(key);
   };
   const putTree = (x, z, y, k, h, key, sm, ashen) => {
@@ -2889,7 +2922,7 @@ function scatterResources(rec, cx, cz) {
       const r = ((tint >> 16 & 255) * 0.42 + 26) | 0, g = ((tint >> 8 & 255) * 0.34 + 22) | 0, b2 = ((tint & 255) * 0.34 + 18) | 0;
       tint = (r << 16) | (g << 8) | b2;
     }
-    rec.objs.push({ t: 0, k, x, z, y, key, n: T.n });
+    rec.objs.push({ t: 0, k, x, z, y, key, n: T.n, h7: h, ash: ashen ? 1 : 0 });
     const row = [x, y - 0.2, z, ((h >>> 26) & 63) / 64 * TAU, s, s * (0.84 + ((h >>> 4) & 31) / 31 * 0.42)];
     if (TREE_BROAD[k]) { bm.push(row); bc.push(tint); } else { cm.push(row); cc.push(tint); }
   };
@@ -2963,6 +2996,16 @@ function instance(geo, rows, cols, rec, tag, broad) {
   return inst;
 }
 const hideInst = o => { if (o.inst) { o.inst.setMatrixAt(o.slot, ZERO); o.inst.instanceMatrix.needsUpdate = true; } };
+/* the inverse: re-lay the proc instance from the tile's own dice (the same rolls scatterResources made) */
+function showInst(o) {
+  if (!o.inst) return;
+  const y = tileH(o.x, o.z), h = hash2(o.x, o.z, S + 101), s = o.t === 0 ? treeScale(o.k, h) : rockScale(h);
+  const sy = o.t === 0 ? s * (0.84 + ((h >>> 4) & 31) / 31 * 0.42) : s * 0.85;
+  _q.setFromAxisAngle(_up, ((h >>> (o.t ? 21 : 26)) & 63) / 64 * TAU);
+  _v3.set(o.x, y - (o.t ? 0.15 : 0.2), o.z);
+  o.inst.setMatrixAt(o.slot, _m4.compose(_v3, _q, _s3.set(s, sy, s)));
+  o.inst.instanceMatrix.needsUpdate = true;
+}
 /* scenery with no gameplay: one merged mesh per chunk */
 function scatterDecor(rec, cx, cz) {
   const ox = cx * CHUNK, oz = cz * CHUNK;
@@ -3081,7 +3124,7 @@ function disposeChunk(rec) {
   for (const e of rec.extra) { scene.remove(e); if (e.isInstancedMesh) { e.dispose(); freeView(e.geometry); } else e.geometry.dispose(); }
   for (const b of rec.roofs) b.roof = null;
   for (const k of rec.blk) unblock(k);
-  for (const o of rec.objs) { unclaim(o); if (objIndex.get(o.key) === o) objIndex.delete(o.key); }
+  for (const o of rec.objs) { unclaim(o); if (o.s7) drop7(o); if (objIndex.get(o.key) === o) objIndex.delete(o.key); }
 }
 
 /* ---- 16. HEIGHT, FLOORS AND WALKABILITY ---- */
@@ -3480,6 +3523,10 @@ function osrsApply() {
   if (want === osrsOn) return;
   osrsOn = want;
   osrsLod();   // strangers re-test themselves next frame; osrsKind reads osrsOn and the rigs already out come back
+  if (chunks.size) {   // fixtures are baked into the chunk batches at populate: re-lay the near ground under the new setting
+    for (const [k, rec] of chunks) if (rec.near) { disposeChunk(rec); chunks.delete(k); }
+    refresh();
+  }
 }
 /* the boom's own length, not the wheel's: a camera the walls have collapsed onto your shoulder is near, whatever the zoom says */
 function osrsLod() {
@@ -3529,6 +3576,39 @@ function npcLod(n) {
   return n.k07;
 }
 const npcFree7 = n => { if (n.o7) { scene.remove(n.o7); OSRSK.npcFree(n.o7); n.o7 = null; } };
+/* World objects wear the setting too. A tree or a vein close to you drops its instanced proc look for the
+   cache's own loc model — variant by the tile's coin so every client grows the same oak — and picks it back up
+   when you walk away; the depleted state swaps to the pack's own stump or cleared vein where it carries one.
+   Distance is to the player, not the camera: there are hundreds of trees where there is one monster, so the
+   ring is tighter, and sticky for the same no-flicker reason. Wilderness trees stay proc — the ashen half-dead
+   tint is this world's own and the cache's greens would contradict it. Fixtures inside merged chunk batches
+   (stalls, wells, furnaces) swap at populate instead: see b07 and osrsApply's re-lay. */
+const LOC7 = 30, LOC7_OUT = 34;   // Manhattan tiles to the player; the gap is the anti-flicker
+const l7Set = new Set();   // every object the overlay currently owns, mesh or not — the off-list sweep reads it
+function drop7(o) {
+  if (o.l7) { scene.remove(o.l7); OSRSK.locFree(o.l7); o.l7 = null; }
+  o.l7s = 0; o.s7 = 0; l7Set.delete(o);
+}
+function loc7Frame(o) {
+  if (o.no7) return;
+  const dep = depleted.has(o.key) ? 1 : 0;
+  const near = osrsOn && !o.ash && o.inst
+    && Math.abs(o.x - P.tx) + Math.abs(o.z - P.tz) <= (o.s7 ? LOC7_OUT : LOC7) ? 1 : 0;
+  if (near === (o.s7 || 0) && (!near || dep === o.d7)) return;   // settled
+  drop7(o);
+  if (!near) { if (!dep) showInst(o); return; }
+  const name = o.t === 0 ? TREES[o.k].n7 : ORES[o.k].n7, n = OSRSK.locVariants(name);
+  if (!n) { o.no7 = 1; return; }   // a name the pack lacks keeps the proc look at any distance
+  o.s7 = 1; o.d7 = dep; l7Set.add(o);
+  hideInst(o);   // even with no spent model: depleted proc is hidden too, and leaving range restores it
+  const mesh = OSRSK.locMesh(name, (o.h7 >>> 8) % n, dep);
+  if (!mesh) return;   // depleted with no spent look: the stump pool (a tree) or bare ground (a vein)
+  mesh.position.set(o.x, o.y - 0.06, o.z);
+  mesh.rotation.y = ((o.h7 >>> 26) & 3) * (PI / 2);   // quarter turns, the client's own four facings
+  mesh.scale.setScalar((o.t === 0 ? 1.24 : 1.15) * (0.85 + ((o.h7 >>> 10) & 255) / 255 * 0.3));
+  scene.add(mesh);
+  o.l7 = mesh; o.l7s = dep;   // l7s: the overlay already shows the spent state, so the stump pool stands down
+}
 const P = {
   tx: 0, tz: 0, px: 0, pz: 0, rx: 0, ry: 0, rz: 0, face: 0, faceT: 0, span: 1,
   path: [], goal: null, task: null, actT: 0, atkT: 0, acting: 0, actSpan: 2, walkPhase: 0, bobPhase: 0, swingPhase: 0,
@@ -4458,14 +4538,7 @@ function respawnTick() {
     const o = objIndex.get(k);
     if (!o) continue;
     if (o.t === 0) claim(o);
-    if (o.inst) {
-      const y = tileH(o.x, o.z), h = hash2(o.x, o.z, S + 101), s = o.t === 0 ? treeScale(o.k, h) : rockScale(h);
-      const sy = o.t === 0 ? s * (0.84 + ((h >>> 4) & 31) / 31 * 0.42) : s * 0.85;
-      _q.setFromAxisAngle(_up, ((h >>> (o.t ? 21 : 26)) & 63) / 64 * TAU);
-      _v3.set(o.x, y - (o.t ? 0.15 : 0.2), o.z);
-      o.inst.setMatrixAt(o.slot, _m4.compose(_v3, _q, _s3.set(s, sy, s)));
-      o.inst.instanceMatrix.needsUpdate = true;
-    }
+    if (!o.s7) showInst(o);   // under a 2007 overlay the instance stays down; loc7Frame redresses the mesh next frame
   }
 }
 function startTask(o, kind) {
@@ -6585,8 +6658,12 @@ function animateNpc(n, dt, limbs) {
 const POOL_KEEP = Pool(KEEP_GEO, 24, 1), POOLS = [POOL_STUMP, POOL_FIRE, POOL_DROP, POOL_SPOT, POOL_KEEP];
 function updatePools(t) {
   POOLS.forEach(poolReset);
+  /* objects the 07 overlay owns but the close list no longer covers (a teleport, a sprint, the setting off):
+     loc7Frame tears them down; membership means the checks stay proportional to what is actually up */
+  for (const o of l7Set) if (!osrsOn || Math.abs(o.x - P.tx) + Math.abs(o.z - P.tz) > LOC7_OUT) loc7Frame(o);
   for (const o of closeList()) {
-    if (o.t === 0) { if (depleted.has(o.key)) poolPut(POOL_STUMP, o.x, o.y - 0.18, o.z, o.x * 0.7, 1); }
+    if (o.t <= 1) loc7Frame(o);
+    if (o.t === 0) { if (depleted.has(o.key) && !o.l7s) poolPut(POOL_STUMP, o.x, o.y - 0.18, o.z, o.x * 0.7, 1); }
     else if (o.t === 2) { if (!depleted.has(o.key)) { const w = 0.85 + Math.sin(t * 2.2 + o.x * 0.7 + o.z * 0.4) * 0.16; poolPut(POOL_SPOT, o.x, 0.08, o.z, t * 0.5 + o.x, w, 1, w); } }
     else if (KEEP_TINT[o.t]) poolPut(POOL_KEEP, o.kx !== undefined ? o.kx : o.x, o.y, o.kz !== undefined ? o.kz : o.z, o.dir !== undefined ? o.dir : o.b ? o.b.door * (PI / 2) : 0, 1, 1, 1, KEEP_TINT[o.t]);
   }

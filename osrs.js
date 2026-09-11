@@ -1,11 +1,15 @@
 /* ---- OSRS 2007 MODELS -------------------------------------------------------------------------------------
-   The 2007 client's own player kit — and its monsters — worn when "2007 models" is on in SETUP.
-   assets/osrs/{player.json,models.bin} are prebuilt from the game cache (the `modl` project): one packed chunk
-   per model, plus each item's wear slots, recolours, the parts it conceals, and `src` — the seedworld display
-   name it was resolved by, so this file needs no name-matching rules of its own. The `npcs` section
+   The 2007 client's own player kit — and its monsters and world objects — worn when "2007 models" is on in
+   SETUP. assets/osrs/{player.json,models.bin} are prebuilt from the game cache (the `modl` project): one packed
+   chunk per model, plus each item's wear slots, recolours, the parts it conceals, and `src` — the seedworld
+   display name it was resolved by, so this file needs no name-matching rules of its own. The `npcs` section
    (tools/osrs-npcs.mjs) is keyed by this game's monster display name the same way: each name carries one or
    more variants {m, rc, ws, hs, amb, con}, and npcMesh() serves one as a plain unskinned mesh fitted to the
    height the caller measured off the box rig, so a 2007 monster stands exactly as tall as the one it replaces.
+   The `locs` section (tools/osrs-locs.mjs) is scenery, keyed by display name again: each variant {m, rc, rt,
+   s, o, amb, con, w, d, sp} is a loc def with the spent (chopped/mined) state riding along as sp. locMesh()
+   serves one as a plain mesh at the cache's own tile scale (128 units = 1 tile), lit as the client lights
+   scenery; locBatch() serves the same triangles as flat arrays for game.js's chunk batcher.
 
    The client composes a player by merging up to twelve models into one mesh and baking the light into the face
    colours; everything below is that pass, ported. What a still viewer never needed is the skeleton: every vertex
@@ -140,7 +144,7 @@ function merge(list) {
     vcMax += p.m.vc; fc += p.m.fc;
     if (p.m.types) anyT = true;
     if (p.m.alphas) anyA = true;
-    if (p.m.textures) anyX = true;
+    if (p.m.textures || p.tex) anyX = true;
   }
   const vx = new Int32Array(vcMax), vy = new Int32Array(vcMax), vz = new Int32Array(vcMax), vb = new Uint8Array(vcMax);
   const idx = new Int32Array(fc * 3), colors = new Uint16Array(fc);
@@ -161,10 +165,11 @@ function merge(list) {
       seen.set(key, vc);
       return vc++;
     };
+    const mt = p.tex || m.textures;   /* a loc's retexture list swaps texture ids per part */
     for (let i = 0; i < m.fc; i++, f++) {
       if (types) types[f] = m.types ? m.types[i] : 0;
       if (alphas) alphas[f] = m.alphas ? m.alphas[i] : 0;
-      if (textures) textures[f] = m.textures ? m.textures[i] : 0;
+      if (textures) textures[f] = mt ? mt[i] : 0;
       colors[f] = p.colors[i];
       idx[f * 3] = vertex(m.indices[i * 3]);
       idx[f * 3 + 1] = vertex(m.indices[i * 3 + 1]);
@@ -199,10 +204,12 @@ function computeNormals(g) {
 const clampL = v => v < 2 ? 2 : v > 126 ? 126 : v;
 const shadeHsl = (hsl, l) => (hsl & 65408) + clampL(((hsl & 127) * l) >> 7);
 const LIT = { ambient: 64, contrast: 850, x: -30, y: -50, z: -30 };   /* the client's player light: toModel(64,850,-30,-50,-30) */
-/* a monster adds its own ambient/contrast on top (NPCComposition.getModel), same direction */
-function light(g, amb, con) {
-  const ambient = LIT.ambient + (amb || 0), x = LIT.x, y = LIT.y, z = LIT.z, n = computeNormals(g);
-  const att = (Math.trunc(Math.sqrt(x * x + y * y + z * z)) * (LIT.contrast + (con || 0))) >> 8, flatDiv = Math.trunc(att / 2) + att;
+const LOC_LIT = { ambient: 64, contrast: 768, x: -50, y: -10, z: -50 };   /* scenery is static world geometry: ObjectComposition.getEntity */
+/* a monster adds its own ambient/contrast on top (NPCComposition.getModel), same direction; a loc does the same over LOC_LIT */
+function light(g, amb, con, base) {
+  const L = base || LIT;
+  const ambient = L.ambient + (amb || 0), x = L.x, y = L.y, z = L.z, n = computeNormals(g);
+  const att = (Math.trunc(Math.sqrt(x * x + y * y + z * z)) * (L.contrast + (con || 0))) >> 8, flatDiv = Math.trunc(att / 2) + att;
   const c1 = new Int32Array(g.fc), c2 = new Int32Array(g.fc), c3 = new Int32Array(g.fc);
   for (let f = 0; f < g.fc; f++) {
     let type = g.types ? g.types[f] : 0;
@@ -275,6 +282,7 @@ function toGeometry(g, lit, o) {
 let D = null, models = null, PAL = null, loading = null;
 const byName = new Map();                                          /* seedworld display name -> cache item id */
 const nByName = new Map();                                         /* seedworld monster name -> its variant list */
+const lByName = new Map();                                         /* seedworld scenery name -> its variant list */
 const texCache = new Map();
 function texAvg(id) {
   let v = texCache.get(id);
@@ -303,6 +311,7 @@ function load() {
     for (const id in D.models) models.set(+id, readModel(a[1], D.models[id].o));
     for (const id in D.items) byName.set(D.items[id].src.toLowerCase(), +id);
     for (const n in D.npcs || {}) nByName.set(n.toLowerCase(), D.npcs[n]);
+    for (const n in D.locs || {}) lByName.set(n.toLowerCase(), D.locs[n]);
     PAL = buildPalette(BRIGHT);
     return true;
   }).catch(e => { loading = null; throw e; });
@@ -345,6 +354,7 @@ let matOpaque = null, matClear = null;
 const brightness = v => {
   if (matOpaque) { matOpaque.color.setScalar(v); matClear.color.setScalar(v); }
   if (nMatO) { nMatO.color.setScalar(v); nMatC.color.setScalar(v); }
+  if (lMatO) { lMatO.color.setScalar(v); lMatC.color.setScalar(v); }
 };
 function materials() {
   if (!matOpaque) {
@@ -602,5 +612,95 @@ function npcMesh(name, vi, h, plan) {
 }
 function npcFree(mesh) { const i = nLive.indexOf(mesh); if (i >= 0) nLive.splice(i, 1); }
 
-return { load, rig, dress, brightness, idFor, npcVariants, npcMesh, npcFree, ready: () => !!D };
+/* ---- 2007 world objects ------------------------------------------------------------------------------------
+   Scenery is simpler than a monster: no skeleton, no height fit. A loc model is authored on the tile grid —
+   128 units = 1 tile, base at y 0, centred on its footprint — so 1/128 stands it on its tile at the cache's
+   own size and the caller only adds flavour scale. The def's own resize/offset (s, o) is folded into the
+   vertices before lighting, exactly as ObjectComposition does, and the light is the client's scenery light
+   (LOC_LIT), not the actor light. locMesh() is the near-LOD overlay for an instanced tree or vein (spent = the
+   chopped/mined state, when the pack carries one); locBatch() hands the same lit triangles to game.js's chunk
+   batcher as flat arrays, colours already final, for the fixtures that live inside merged chunk meshes. */
+const S128 = 1 / 128;
+function locPart(m, st) {
+  let verts = m.verts;
+  const s = st.s, o = st.o;
+  if (s || o) {
+    const sx = s ? s[0] : 128, sy = s ? s[1] : 128, sz = s ? s[2] : 128;
+    const ox = o ? o[0] : 0, oy = o ? o[1] : 0, oz = o ? o[2] : 0;
+    verts = Int16Array.from(m.verts);
+    for (let i = 0; i < verts.length; i += 3) {
+      verts[i] = Math.trunc(verts[i] * sx / 128) + ox;
+      verts[i + 1] = Math.trunc(verts[i + 1] * sy / 128) + oy;
+      verts[i + 2] = Math.trunc(verts[i + 2] * sz / 128) + oz;
+    }
+  }
+  let colors = m.colors;
+  if (st.rc && st.rc.length) {
+    colors = Uint16Array.from(m.colors);
+    for (let i = 0; i < colors.length; i++) for (const p of st.rc) if (colors[i] === p[0]) { colors[i] = p[1]; break; }
+  }
+  let tex = null;
+  if (st.rt && st.rt.length && m.textures) {   /* stored +1 so 0 means untextured */
+    tex = Uint16Array.from(m.textures);
+    for (let i = 0; i < tex.length; i++) for (const p of st.rt) if (tex[i] === p[0] + 1) { tex[i] = p[1] + 1; break; }
+  }
+  return { m, verts, colors, pin: 0, tex };
+}
+let lMatO = null, lMatC = null;
+function lMats() {
+  if (!lMatO) {
+    lMatO = basicMat({});
+    lMatC = basicMat({ transparent: true, depthWrite: false });
+    lMatO.color.setScalar(OPT.brightness); lMatC.color.setScalar(OPT.brightness);
+  }
+  return [lMatO, lMatC];
+}
+const lGeoCache = new Map(), LGEO_MAX = 96, lLive = [];   /* same LRU discipline again */
+function locVariants(name) { const v = lByName.get(name.toLowerCase()); return v ? v.length : 0; }
+function locState(name, vi, spent) {
+  const list = lByName.get(name.toLowerCase());
+  if (!list || !list.length) return null;
+  const v = list[vi % list.length];
+  return spent ? v.sp || null : v;   /* no spent look in the cache: the caller keeps its own */
+}
+function locGeometry(name, vi, spent) {
+  const st = locState(name, vi, spent);
+  if (!st) return null;
+  const key = name.toLowerCase() + '|' + vi + '|' + (spent ? 1 : 0);
+  let e = lGeoCache.get(key);
+  if (e) { lGeoCache.delete(key); lGeoCache.set(key, e); return e; }
+  const list = [];
+  for (const id of st.m) { const m = models.get(id); if (m) list.push(locPart(m, st)); }
+  if (!list.length) return null;
+  const g = merge(list);
+  e = { geo: toGeometry(g, light(g, st.amb, st.con, LOC_LIT), { sx: S128, sy: S128, sz: S128 }) };
+  lGeoCache.set(key, e);
+  if (lGeoCache.size > LGEO_MAX) for (const [k2, e2] of lGeoCache) {
+    if (k2 === key || lLive.some(m => m.geometry === e2.geo)) continue;
+    e2.geo.dispose(); lGeoCache.delete(k2); break;
+  }
+  return e;
+}
+function locMesh(name, vi, spent) {
+  const e = locGeometry(name, vi, spent);
+  if (!e) return null;
+  const mesh = new THREE.Mesh(e.geo, lMats());
+  lLive.push(mesh);
+  return mesh;
+}
+function locFree(mesh) { const i = lLive.indexOf(mesh); if (i >= 0) lLive.splice(i, 1); }
+/* the batcher's view: positions and 3-component colours, copied out synchronously by Batch.add07, so the
+   arrays may be LRU'd along with their geometry without ceremony */
+function locBatch(name, vi) {
+  const e = locGeometry(name, vi, 0);
+  if (!e) return null;
+  if (!e.bt) {
+    const c4 = e.geo.attributes.color.array, n = c4.length / 4, c3 = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) { c3[i * 3] = c4[i * 4]; c3[i * 3 + 1] = c4[i * 4 + 1]; c3[i * 3 + 2] = c4[i * 4 + 2]; }
+    e.bt = { pos: e.geo.attributes.position.array, col: c3 };
+  }
+  return e.bt;
+}
+
+return { load, rig, dress, brightness, idFor, npcVariants, npcMesh, npcFree, locVariants, locMesh, locFree, locBatch, ready: () => !!D };
 })();
