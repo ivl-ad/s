@@ -657,6 +657,14 @@ function lMats() {
 }
 const lGeoCache = new Map(), LGEO_MAX = 96, lLive = [];   /* same LRU discipline again */
 function locVariants(name) { const v = lByName.get(name.toLowerCase()); return v ? v.length : 0; }
+/* variant indices split by the pack's own dd flag (osrs-locs.mjs tags the bare/dying looks by cache id):
+   a is the living pool, d the dead one. Names with no dead looks return d empty and the caller falls back. */
+function locPools(name) {
+  const v = lByName.get(name.toLowerCase());
+  if (!v) return null;
+  if (!v.pools) { const a = [], d = []; v.forEach((st, i) => (st.dd ? d : a).push(i)); v.pools = { a, d }; }
+  return v.pools;
+}
 function locState(name, vi, spent) {
   const list = lByName.get(name.toLowerCase());
   if (!list || !list.length) return null;
@@ -702,5 +710,5 @@ function locBatch(name, vi) {
   return e.bt;
 }
 
-return { load, rig, dress, brightness, idFor, npcVariants, npcMesh, npcFree, locVariants, locMesh, locFree, locBatch, ready: () => !!D };
+return { load, rig, dress, brightness, idFor, npcVariants, npcMesh, npcFree, locVariants, locPools, locMesh, locFree, locBatch, ready: () => !!D };
 })();

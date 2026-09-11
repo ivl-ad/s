@@ -702,6 +702,16 @@ function fieldAt(x, z, n) {
   const h = hash2(Math.floor(x / 12), Math.floor(z / 12), S + 107);
   return (h & 7) < 3 ? 1 + (h >>> 3 & 1) : 0;
 }
+/* dead-tree ground, the same bands colorAt paints below: swampland drowns roots and the parched flats starve
+   them, so a share of their trees stand bare; everywhere else the dead only walk the wilderness. Bits 18-20 of
+   the tile hash are virgin (density burns 0-9, scale 10-17, rocks 21+, facing 26+), so the roll is uncorrelated
+   with which trees exist at all. */
+function deadGround(x, z, y, h) {
+  const moist = biomeAt(x, z);
+  if (moist > 0.34 && y < 7) return ((h >>> 18) & 7) < 3;                     // swamp: three in eight
+  if (moist <= 0.05 && _bw - y * 0.010 > 0.26) return ((h >>> 18) & 3) < 1;   // parched dry: one in four
+  return 0;
+}
 function colorAt(x, z, h, slope) {
   if (z > 500000) return dunColor(x, z, h, slope);
   const moist = biomeAt(x, z), warm = _bw - h * 0.010;
@@ -1461,9 +1471,9 @@ Batch.prototype.add07 = function (bt, x, y, z, s, rot) {
    the variant is the tile's own coin, so every client and every rebuild lays the same stall */
 function b07(B, name, x, y, z, s, rot) {
   if (!osrsOn) return 0;
-  const n = OSRSK.locVariants(name);
-  if (!n) return 0;
-  const bt = OSRSK.locBatch(name, hash2(Math.round(x), Math.round(z), S + 107) % n);
+  const pl = OSRSK.locPools(name);
+  if (!pl || !pl.a.length) return 0;   // fixtures wear only living looks: a city street never plants the dead tree
+  const bt = OSRSK.locBatch(name, pl.a[hash2(Math.round(x), Math.round(z), S + 107) % pl.a.length]);
   if (!bt) return 0;
   B.add07(bt, x, y, z, s || 1, rot || 0);
   return 1;
@@ -1502,6 +1512,17 @@ const BROAD_GEO = merge([
   shade(shift(cyl(0.22, 0.34, 2.4, 6, 1), 1.2), BARK2),
   shade(shift(cyl(0.13, 0.13, 1.2, 4, 1), 2.5).rotateZ(0.7).translate(0.45, 0, 0), BARK2),
   bakeW(shift(octa(1.62, 1), 3.55)), bakeW(shift(octa(1.05, 1), 3.0).translate(1.15, 0, -0.35)), bakeW(shift(octa(0.92, 1), 3.15).translate(-0.95, 0, 0.7))
+]);
+/* a dead tree: the trunk and a few bare reaching arms, white-baked so the instance tint says which wood.
+   This is the far-LOD and no-cache-look form of every dead tree - the wilds entire, and the swamp and dry-flat
+   casualties - sized to stand where the living canopies stand. */
+const DEADTREE_GEO = merge([
+  bakeW(shift(cyl(0.15, 0.30, 2.7, 6, 1), 1.35)),
+  bakeW(shift(cyl(0.05, 0.10, 1.6, 4, 1), 0.8).rotateZ(0.62).translate(0.30, 1.55, 0.05)),
+  bakeW(shift(cyl(0.05, 0.09, 1.4, 4, 1), 0.7).rotateZ(-0.74).rotateY(0.9).translate(-0.26, 1.85, -0.10)),
+  bakeW(shift(cyl(0.04, 0.08, 1.1, 4, 1), 0.55).rotateZ(0.5).rotateY(-2.1).translate(0.14, 2.2, 0.20)),
+  bakeW(shift(cyl(0.04, 0.07, 0.9, 4, 1), 0.45).rotateZ(-0.4).rotateY(2.6).translate(-0.08, 2.5, 0.08)),
+  bakeW(shift(cyl(0.03, 0.06, 0.6, 4, 1), 0.3).rotateZ(0.2).translate(0.02, 2.65, -0.04))
 ]);
 const STUMP_GEO = merge([shade(shift(cyl(0.30, 0.40, 0.62, 7), 0.31), [0.36, 0.27, 0.17]), shade(shift(cyl(0.27, 0.27, 0.06, 7), 0.63), [0.52, 0.41, 0.28])]);
 const ROCK_GEO = merge([
@@ -2911,7 +2932,7 @@ const treeScale = (k, h) => (0.66 + ((h >>> 10) & 255) / 255 * 0.62) * TREES[k].
 const rockScale = h => 0.8 + ((h >>> 17) & 15) / 15 * 0.45;
 /* trees, veins and fishing spots: instanced, so a chopped tree can vanish without rebuilding the chunk */
 function scatterResources(rec, cx, cz) {
-  const ox = cx * CHUNK, oz = cz * CHUNK, cm = [], cc = [], bm = [], bc = [], rm = [], rc = [];
+  const ox = cx * CHUNK, oz = cz * CHUNK, cm = [], cc = [], bm = [], bc = [], dm = [], dc = [], rm = [], rc = [];
   const TCAP = 96, RCAP = 34;
   const putRock = (x, z, y, k, h, key) => {
     const st = rockScale(h);
@@ -2920,14 +2941,11 @@ function scatterResources(rec, cx, cz) {
   };
   const putTree = (x, z, y, k, h, key, sm, ashen) => {
     const T = TREES[k], s = treeScale(k, h) * sm;
-    let tint = T.tint;
-    if (ashen) {   // wilderness trees stand grey-brown and half dead
-      const r = ((tint >> 16 & 255) * 0.42 + 26) | 0, g = ((tint >> 8 & 255) * 0.34 + 22) | 0, b2 = ((tint & 255) * 0.34 + 18) | 0;
-      tint = (r << 16) | (g << 8) | b2;
-    }
-    rec.objs.push({ t: 0, k, x, z, y, key, n: T.n, h7: h, ash: ashen ? 1 : 0 });
+    const dd = ashen || deadGround(x, z, y, h) ? 1 : 0;   // the wilderness kills every tree; swamp and parched ground take their share
+    rec.objs.push({ t: 0, k, x, z, y, key, n: T.n, h7: h, dd });
     const row = [x, y - 0.2, z, ((h >>> 26) & 63) / 64 * TAU, s, s * (0.84 + ((h >>> 4) & 31) / 31 * 0.42)];
-    if (TREE_BROAD[k]) { bm.push(row); bc.push(tint); } else { cm.push(row); cc.push(tint); }
+    if (dd) { dm.push(row); dc.push(ashen ? 0x6e675e : 0x8a7458); }   // bare wood: cold grey in the ash, sun-dried brown on dry ground
+    else if (TREE_BROAD[k]) { bm.push(row); bc.push(T.tint); } else { cm.push(row); cc.push(T.tint); }
   };
   for (let j = 0; j < CHUNK; j++) for (let i = 0; i < CHUNK; i++) {
     const x = ox + i, z = oz + j, y = recH(rec, x, z), key = tk(x, z);
@@ -2979,6 +2997,7 @@ function scatterResources(rec, cx, cz) {
   }
   if (cm.length) rec.extra.push(instance(CONIFER_GEO, cm, cc, rec, 0, 0));
   if (bm.length) rec.extra.push(instance(BROAD_GEO, bm, bc, rec, 0, 1));
+  if (dm.length) rec.extra.push(instance(DEADTREE_GEO, dm, dc, rec, 0, 2));
   if (rm.length) rec.extra.push(instance(ROCK_GEO, rm, rc, rec, 1, -1));
 }
 /* rows are [x, y, z, rot, scale, yscale]; tag/broad select which objects this mesh owns */
@@ -2993,7 +3012,7 @@ function instance(geo, rows, cols, rec, tag, broad) {
   scene.add(inst);
   let n = 0;
   for (const o of rec.objs) {
-    if (o.t !== tag || (tag === 0 && TREE_BROAD[o.k] !== broad)) continue;
+    if (o.t !== tag || (tag === 0 && (o.dd ? 2 : TREE_BROAD[o.k]) !== broad)) continue;   // 2 is the dead pool: state outranks species
     o.inst = inst; o.slot = n++;
   }
   return inst;
@@ -3598,9 +3617,11 @@ const npcFree7 = n => { if (n.o7) { scene.remove(n.o7); OSRSK.npcFree(n.o7); n.o
    cache's own loc model — variant by the tile's coin so every client grows the same oak — and picks it back up
    when you walk away; the depleted state swaps to the pack's own stump or cleared vein where it carries one.
    Distance is to the player, not the camera: there are hundreds of trees where there is one monster, so the
-   ring is tighter, and sticky for the same no-flicker reason. Wilderness trees stay proc — the ashen half-dead
-   tint is this world's own and the cache's greens would contradict it. Fixtures inside merged chunk batches
-   (stalls, wells, furnaces) swap at populate instead: see b07 and osrsApply's re-lay. */
+   ring is tighter, and sticky for the same no-flicker reason. Trees carry a dead pool (pack rows tagged dd by
+   osrs-locs.mjs): the wilderness entire and the blighted grounds (deadGround: swamp, parched flats) draw only
+   dead variants, everywhere else draws only living ones, and a species with no dead cache look (willow, magic)
+   keeps the bare proc trunk (DEADTREE_GEO) at any distance. Fixtures inside merged chunk batches
+   (stalls, wells, furnaces) swap at populate instead: see b07 and osrsApply's re-lay — living looks only. */
 let LOC7 = LOC7_0, LOC7_OUT = LOC7_0 * LOC7_HYST;   // Manhattan tiles to the player; the gap is the anti-flicker (setOsrsDist scales both)
 const l7Set = new Set();   // every object the overlay currently owns, mesh or not — the off-list sweep reads it
 function drop7(o) {
@@ -3610,16 +3631,25 @@ function drop7(o) {
 function loc7Frame(o) {
   if (o.no7) return;
   const dep = depleted.has(o.key) ? 1 : 0;
-  const near = osrsOn && !o.ash && o.inst
+  const near = osrsOn && o.inst
     && Math.abs(o.x - P.tx) + Math.abs(o.z - P.tz) <= (o.s7 ? LOC7_OUT : LOC7) ? 1 : 0;
   if (near === (o.s7 || 0) && (!near || dep === o.d7)) return;   // settled
   drop7(o);
   if (!near) { if (!dep) showInst(o); return; }
-  const name = o.t === 0 ? TREES[o.k].n7 : ORES[o.k].n7, n = OSRSK.locVariants(name);
-  if (!n) { o.no7 = 1; return; }   // a name the pack lacks keeps the proc look at any distance
+  const name = o.t === 0 ? TREES[o.k].n7 : ORES[o.k].n7;
+  let vi;
+  if (o.t === 0) {   // a tree answers for its state: the dead pool serves the wilds and the blighted ground, the living pool everywhere else
+    const pl = OSRSK.locPools(name), pick = pl && (o.dd ? pl.d : pl.a);
+    if (!pick || !pick.length) { o.no7 = 1; return; }   // no cache look for this state (a dead willow): the bare proc trunk stands at any distance
+    vi = pick[(o.h7 >>> 8) % pick.length];
+  } else {
+    const n = OSRSK.locVariants(name);
+    if (!n) { o.no7 = 1; return; }   // a name the pack lacks keeps the proc look at any distance
+    vi = (o.h7 >>> 8) % n;
+  }
   o.s7 = 1; o.d7 = dep; l7Set.add(o);
   hideInst(o);   // even with no spent model: depleted proc is hidden too, and leaving range restores it
-  const mesh = OSRSK.locMesh(name, (o.h7 >>> 8) % n, dep);
+  const mesh = OSRSK.locMesh(name, vi, dep);
   if (!mesh) return;   // depleted with no spent look: the stump pool (a tree) or bare ground (a vein)
   mesh.position.set(o.x, o.y - 0.06, o.z);
   mesh.rotation.y = ((o.h7 >>> 26) & 3) * (PI / 2);   // quarter turns, the client's own four facings
@@ -9989,14 +10019,20 @@ function unlockBook(b) {
 /* a landing tile at about the wilderness level asked for: the ancient teleports are the wiki's own deep destinations,
    so they carry you IN rather than out — the TP_CAP gate above still refuses to carry you back. */
 function wildLanding(lv) {
-  for (let i = 0; i < 600; i++) {
-    const h = hash2(lv * 977 + i, 31, S + 808);
-    const a = (h % 65536) / 65536 * TAU, r = lv * 26 + ((h >>> 16) % 40) - 20;
-    const x = Math.round(ORIGIN.x + Math.cos(a) * r), z = Math.round(ORIGIN.z + Math.sin(a) * r);
-    if (Math.abs(wildLvAt(x, z) - lv) > 2) continue;
-    const y = heightAt(x, z);
-    if (y < 1.6 || y > 60 || nearTown(x, z)) continue;
-    return { x, z };
+  /* The rings are far and ragged: lv * 26 belonged to an older, nearer layout, and against today's bands
+     (the first passes ~3,700 tiles out) it never landed, so the four ancient wilderness teleports always
+     refused. March rays outward instead until the band with the asked level runs under one. */
+  for (let t = 0; t < 24; t++) {
+    const h = hash2(lv * 977 + t, 31, S + 808);
+    const a = (h % 65536) / 65536 * TAU, ca = Math.cos(a), sa = Math.sin(a);
+    for (let r = 3200 + ((h >>> 16) % 40), lim = lv > 20 ? 21000 : 9000; r < lim; r += 40) {
+      const x = Math.round(ORIGIN.x + ca * r), z = Math.round(ORIGIN.z + sa * r);
+      const wl = wildLvAt(x, z);
+      if (!wl || Math.abs(wl - lv) > 2) continue;
+      const y = heightAt(x, z);
+      if (y < 1.6 || y > 60) continue;
+      return { x, z };
+    }
   }
   return null;
 }
